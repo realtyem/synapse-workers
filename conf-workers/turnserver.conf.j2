@@ -1,0 +1,101 @@
+# Most instructions and fiddly-bits come from Matrix.org's manual for TURN installation
+# found at: https://matrix-org.github.io/synapse/latest/turn-howto.html
+#
+# While typically coturn's UDP relay ports can number in the several(ten's) of thousands,
+# we are using docker containers, which are notorious for not liking large ranges of ports.
+# The default is 49152-65535 as a range. I'm sure you aren't going to be supporting over
+# 4,000 clients at the same time, so a more limited range of UDP relay ports is appropriate.
+# If you need to handle more than, say, 12 people's VoIP at the same time, install coturn as
+# a separate docker image and make it's network 'host' and you'll have a better time.
+#
+# Useful info on ports blocked by ISP's:
+# https://about.att.com/sites/broadband/network (down near the bottom)
+#
+# Check with your ISP for documentation on which ports they block, like 25, 139, 3479, 49152
+#
+# On your router, forward port 3478(for both TCP and UDP) to your UNRaid machine's static IP. Also
+# forward ports 49153-49173 for UDP only to the same UNRaid static IP.
+#
+# Expose port 3478 on the synapse container to host port 3478 in the synapse template for both TCP and UDP.
+# Additionally, expose ports 49153-49173 for UDP only in the same template. Those can be expressed as a
+# range(with the same dash like here). Can be overriden by COTURN_MIN_PORT and COTURN_MAX_PORT
+# in the docker template.
+#
+# Synapse VoIP traffic is all UDP, so disallow TCP. Notice the 'relay' part of that option.
+no-tcp-relay
+
+# don't let the relay ever try to connect to private IP address ranges within your network (if any)
+# given the turn server is likely behind your firewall, remember to include any privileged public IPs too.
+denied-peer-ip=10.0.0.0-10.255.255.255
+# Most common DHCP assigned internal addresses
+denied-peer-ip=192.168.0.0-192.168.255.255
+# These are addresses reserved for docker
+denied-peer-ip=172.16.0.0-172.31.255.255
+
+# recommended additional local peers to block, to mitigate external access to internal services.
+# https://www.rtcsec.com/article/slack-webrtc-turn-compromise-and-bug-bounty/#how-to-fix-an-open-turn-relay-to-address-this-vulnerability
+no-multicast-peers
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.0.2.0-192.0.2.255
+denied-peer-ip=192.88.99.0-192.88.99.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+denied-peer-ip=198.51.100.0-198.51.100.255
+denied-peer-ip=203.0.113.0-203.0.113.255
+denied-peer-ip=240.0.0.0-255.255.255.255
+
+# special case the turn server itself so that client->TURN->TURN->client flows work
+# this should be one of the turn server's listening IPs
+# This is automatically thanks to the listening-ip being commented out
+# allowed-peer-ip={{ internal_ip }}
+
+# consider whether you want to limit the quota of relayed streams per user (or total) to avoid risk of DoS.
+user-quota=24 # 4 streams per video call, so 24 streams = 6 simultaneous relayed calls per user.
+total-quota=1200
+
+use-auth-secret
+static-auth-secret={{ coturn_secret }}
+realm={{ server_name }}
+# Don't need this, as it's used for oauth only
+# server-name={{ server_name }}
+fingerprint
+# cipher-list="HIGH"
+listening-port=3478
+
+# Leave this blank and it will be auto detected
+# listening-ip=0.0.0.0
+min-port={{ min_port }}
+max-port={{ max_port }}
+external-ip={{ external_ip }}/{{ internal_ip }}
+log-file=/data/logs/turnserver.log
+new-log-timestamp
+no-cli
+
+{% if enable_coturn_metrics == "True" -%}
+prometheus
+# These next two options are broken at this time. Save them for now.
+# prometheus-username-labels
+# prometheus-port=9641
+{% endif %}
+
+# Won't need these for now as we aren't using TLS to secure the connection, yet.
+# cert=/data/{{ server_name }}.tls.crt
+# pkey=/data/{{ server_name }}.tls.key
+# dh-file=/data/{{ server_name }}.tls.dh
+no-tls
+no-dtls
+
+# Limit the number of threads used for relay ports
+relay-threads=4
+
+# Database, we don't need or use this
+# redis-userdb="ip=127.0.0.1 dbname=2 connect_timeout=60"
+# redis-statdb="ip=127.0.0.1 dbname=2 connect_timeout=60"
+
+
+# lt-cred-mech
+# user=test:test
+# verbose

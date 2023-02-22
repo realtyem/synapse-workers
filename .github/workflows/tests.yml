@@ -1,0 +1,111 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+    types:
+      - opened
+      - edit
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  complement:
+    if: "${{ !failure() }}"
+    needs: linting-done
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arrangement: monolith
+            database: SQLite
+
+          - arrangement: monolith
+            database: Postgres
+
+          - arrangement: workers
+            database: Postgres
+
+          - arrangement: monolith
+            database: SQLite
+            reactor: asyncio
+
+          - arrangement: monolith
+            database: Postgres
+            reactor: asyncio
+
+          - arrangement: workers
+            database: Postgres
+            reactor: asyncio
+
+    steps:
+      - name: Run actions/checkout@v3 for synapse
+        uses: actions/checkout@v3
+        with:
+          path: synapse-workers
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build and push
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          push: false
+          file: "synapse-workers/Dockerfile-unified"
+          tags: "realtyem/synapse:latest"
+          cache-from: type=gha
+          #cache-to: type=gha,mode=max
+
+      - name: Prepare Complement's Prerequisites
+        run: synapse/.ci/scripts/setup_complement_prerequisites.sh
+
+      # - name: Build base
+        # uses: docker/build-push-action@v3
+        # with:
+          # context: .
+          # push: false
+          # file: "docker/Dockerfile-unified"
+          # tags: "synapse:latest"
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max
+
+      - name: Build Complement
+        uses: docker/build-push-action@v3
+        with:
+          context: ./synapse/docker/complement
+          push: false
+          load: true
+          file: "synapse/docker/complement/Dockerfile"
+          tags: "complement-synapse:latest"
+          # cache-from: type=gha
+          # cache-to: type=gha,mode=max
+
+      - name: Run Complement Tests
+        shell: bash
+        env:
+          POSTGRES: ${{ (matrix.database == 'Postgres') && 1 || '' }}
+          WORKERS: ${{ (matrix.arrangement == 'workers') && 1 || '' }}
+          # Take advantage of the fact that the validation for truthy doesn't actually exist here.
+          ASYNCIO_REACTOR: ${{ matrix.reactor || '' }}
+        run: |
+          set -o pipefail
+          COMPLEMENT_DIR=`pwd`/complement synapse/scripts-dev/complement.sh -f -json 2>&1 | synapse/.ci/scripts/gotestfmt
+
+  # a job which marks all the other jobs as complete, thus allowing PRs to be merged.
+  tests-done:
+    if: ${{ always() }}
+    needs:
+      - complement
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: matrix-org/done-action@v2
+        with:
+          needs: ${{ toJSON(needs) }}

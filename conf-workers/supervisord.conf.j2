@@ -1,0 +1,88 @@
+# This file contains the base config for supervisord, as part of ../Dockerfile-workers.
+# configure_workers_and_start.py uses and amends to this file depending on the workers
+# that have been selected.
+[supervisord]
+nodaemon=true
+user=root
+
+[include]
+files = /etc/supervisor/conf.d/*.conf
+
+[program:nginx]
+command=/usr/local/bin/prefix-log /usr/sbin/nginx -g "daemon off;"
+priority=500
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+username=www-data
+autorestart=true
+
+[program:redis]
+command=/usr/local/bin/prefix-log /usr/local/bin/redis-server
+priority=1
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+username=redis
+autorestart=true
+
+# Redis can be disabled if the image is being used without workers
+autostart={{ enable_redis }}
+
+[program:redis_exporter]
+command=/usr/local/bin/prefix-log /usr/local/bin/redis_exporter
+priority=5
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+username=redis_exporter
+autorestart=true
+autostart={{ enable_redis_exporter }}
+
+[program:postgres_exporter]
+command=/usr/local/bin/prefix-log /conf/run_pg_exporter.sh
+priority=15
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+username=postgres_exporter
+autorestart=unexpected
+autostart={{ enable_postgres_exporter }}
+
+
+[program:prometheus]
+command=/usr/local/bin/prefix-log /usr/bin/prometheus --web.listen-address="0.0.0.0:9090" --config.file="/etc/prometheus/prometheus.yml" --storage.tsdb.retention.time=1y --storage.tsdb.wal-compression  --storage.remote.read-sample-limit=0  --storage.remote.read-concurrent-limit=0 --query.max-concurrency=9999
+priority=10
+# Log startup failures to supervisord's stdout/err
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+autorestart=unexpected
+autostart={{ enable_prometheus }}
+exitcodes=0
+
+[program:cron]
+priority = 500
+command = /usr/local/bin/prefix-log /usr/sbin/cron -f -L 15
+autorestart = unexpected
+autostart={{ enable_compressor }}
+stdout_logfile =/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:coturn]
+priority = 500
+command = /usr/local/bin/prefix-log /usr/bin/turnserver -c /conf/turnserver.conf
+autorestart = unexpected
+autostart={{ enable_coturn }}
+username=turnserver
+stdout_logfile =/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0

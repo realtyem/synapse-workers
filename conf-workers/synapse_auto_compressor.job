@@ -1,0 +1,2 @@
+0 1 * * 0       /conf/run_compressor.sh >> /data/logs/auto_compress.log
+

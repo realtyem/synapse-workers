@@ -1,0 +1,2 @@
+#!/bin/sh
+synapse_auto_compressor -p postgresql://{{ postgres_user }}:{{ postgres_password }}@{{ postgres_host }}:{{ postgres_port }}/{{ postgres_db }} -c 500 -n 100

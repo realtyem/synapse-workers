@@ -1,0 +1,3 @@
+#!/bin/bash
+DATA_SOURCE_NAME="user={{ postgres_user }} password={{ postgres_password }} host={{ postgres_host }} port={{ postgres_port }} dbname={{ postgres_db }} sslmode=disable" \
+/usr/local/bin/postgres_exporter --web.listen-address=localhost:9187 --log.level=info --log.format=logfmt
