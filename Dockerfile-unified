@@ -123,7 +123,8 @@ COPY --from=tools /out /
 # The worker configuration start up script. Will start supervisord.
 COPY ./configure_workers_and_start.py /
 
-# Various config and script templates.
+# Various config and script templates including the extended homeserver yaml
+# to replace the one that comes with their image.
 COPY ./conf-workers /conf/
 
 # Copy a script to prefix log lines with the supervisor program name

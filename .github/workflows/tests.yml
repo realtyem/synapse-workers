@@ -2,6 +2,8 @@ name: Tests
 
 on:
   push:
+    paths-ignored:
+      - "release-versions/**"
   pull_request:
     types:
       - opened
@@ -13,10 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-
   complement:
     if: "${{ !failure() }}"
-    needs: linting-done
     runs-on: ubuntu-latest
 
     strategy:
@@ -57,7 +57,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v3
         with:
-          context: .
+          context: "./synapse-workers"
           push: false
           file: "synapse-workers/Dockerfile-unified"
           tags: "realtyem/synapse:latest"
@@ -65,7 +65,7 @@ jobs:
           #cache-to: type=gha,mode=max
 
       - name: Prepare Complement's Prerequisites
-        run: synapse/.ci/scripts/setup_complement_prerequisites.sh
+        run: synapse-workers/.ci/scripts/setup_complement_prerequisites.sh
 
       # - name: Build base
         # uses: docker/build-push-action@v3
@@ -80,10 +80,10 @@ jobs:
       - name: Build Complement
         uses: docker/build-push-action@v3
         with:
-          context: ./synapse/docker/complement
+          context: ./synapse-workers
           push: false
           load: true
-          file: "synapse/docker/complement/Dockerfile"
+          file: "synapse-workers/complement/Dockerfile"
           tags: "complement-synapse:latest"
           # cache-from: type=gha
           # cache-to: type=gha,mode=max
@@ -97,7 +97,7 @@ jobs:
           ASYNCIO_REACTOR: ${{ matrix.reactor || '' }}
         run: |
           set -o pipefail
-          COMPLEMENT_DIR=`pwd`/complement synapse/scripts-dev/complement.sh -f -json 2>&1 | synapse/.ci/scripts/gotestfmt
+          COMPLEMENT_DIR=`pwd`/complement synapse-workers/.ci/scripts/complement.sh -f -json 2>&1 | synapse-workers/.ci/scripts/gotestfmt
 
   # a job which marks all the other jobs as complete, thus allowing PRs to be merged.
   tests-done:
