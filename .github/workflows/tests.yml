@@ -2,7 +2,7 @@ name: Tests
 
 on:
   push:
-    paths-ignored:
+    paths-ignore:
       - "release-versions/**"
   pull_request:
     types:
