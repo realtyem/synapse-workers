@@ -1,4 +1,13 @@
-# GitHub actions workflow which builds and publishes the docker images.
+# GitHub actions workflow which builds and publishes the docker images. Three images can come from this run
+# 1. A latest image which is based on an actual release, also tagged with version number in format 'v*.*.*'
+# 2. A prerelease image which is based on release candidates. This is only tagged with a version, 'v*.*.*'
+# 3. A nightly image, which is based on the develop branch and is cut at 1 UTC which is about 8pm in my timezone
+
+# All are automated builds, by checking the matrix-org repo once a day and if a new release is found building
+# the image, or in the case of nightly just building it every night, even weekends(sometimes things get committed
+# then too).
+
+# Might add a pull request/experimental image build later on.
 
 name: Build docker images
 
@@ -51,8 +60,7 @@ jobs:
 #          platforms: arm64
 
       - name: Get Version
-        # Only bother getting the release version if the version file has been updated
-        if: steps.changes.outputs.release == 'true' || steps.changes.outputs.prerelease == 'true'
+        # It seems harmless to just let this work even if not building a new release
         id: get_version
         run: |
           echo "synapse_latest_version=$(cat release-versions/synapse-latest.txt)" >> $GITHUB_OUTPUT
@@ -69,7 +77,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and Push Latest Image
-        if: steps.changes.outputs.release == 'true'
+        if: ${{ steps.changes.outputs.release == 'true' || github.event_name == 'workflow_dispatch' }}
         uses: docker/build-push-action@v4
         with:
           push: true
@@ -86,7 +94,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and Push Pre-Release Image
-        if: steps.changes.outputs.prerelease == 'true'
+        if: ${{ steps.changes.outputs.prerelease == 'true' || github.event_name == 'workflow_dispatch' }}
         uses: docker/build-push-action@v4
         with:
           push: true
@@ -102,7 +110,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and Push Nightly Image
-        if: github.event_name == 'schedule'
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         uses: docker/build-push-action@v4
         with:
           push: true

@@ -1,3 +1,6 @@
+# Basically a stripped down version of matrix-org's synapse tests.yml file. We're only interested in Complement here,
+# as Sytest and the unit tests are not our concern. Nothing we do in this repo should affect those not working in any
+# way. Test against develop, as the most leading edge.
 name: Tests
 
 on:
@@ -45,7 +48,7 @@ jobs:
             reactor: asyncio
 
     steps:
-      - name: Run actions/checkout@v3 for synapse
+      - name: Git checkout
         uses: actions/checkout@v3
         with:
           path: synapse-workers
@@ -61,23 +64,15 @@ jobs:
           push: false
           file: "synapse-workers/Dockerfile-unified"
           tags: "realtyem/synapse:latest"
+          build-args: |
+            SYNAPSE_VERSION=develop
           cache-from: type=gha
           #cache-to: type=gha,mode=max
 
       - name: Prepare Complement's Prerequisites
         run: synapse-workers/.ci/scripts/setup_complement_prerequisites.sh
 
-      # - name: Build base
-        # uses: docker/build-push-action@v3
-        # with:
-          # context: .
-          # push: false
-          # file: "docker/Dockerfile-unified"
-          # tags: "synapse:latest"
-          # cache-from: type=gha
-          # cache-to: type=gha,mode=max
-
-      - name: Build Complement
+      - name: Build Complement Image
         uses: docker/build-push-action@v3
         with:
           context: ./synapse-workers
@@ -85,7 +80,7 @@ jobs:
           load: true
           file: "synapse-workers/complement/Dockerfile"
           tags: "complement-synapse:latest"
-          # cache-from: type=gha
+          cache-from: type=gha
           # cache-to: type=gha,mode=max
 
       - name: Run Complement Tests
@@ -99,7 +94,7 @@ jobs:
           set -o pipefail
           COMPLEMENT_DIR=`pwd`/complement synapse-workers/.ci/scripts/complement.sh -f -json 2>&1 | synapse-workers/.ci/scripts/gotestfmt
 
-  # a job which marks all the other jobs as complete, thus allowing PRs to be merged.
+  # a job which marks all the other jobs as complete
   tests-done:
     if: ${{ always() }}
     needs:

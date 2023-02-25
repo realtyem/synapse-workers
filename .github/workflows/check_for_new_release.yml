@@ -1,5 +1,8 @@
 # Found at https://stackoverflow.com/questions/58465057/trigger-a-github-actions-when-another-repository-creates-a-release
-# and modified for our purposes.
+# and modified for our purposes. Simple premise: fetch release and prerelease information from github api url's, parse
+# into variables and check against committed files to verify the current build version numbers. If any changes, commit
+# new version files which will then fire off the docker build workflow. The magic which allows this to happen is in the
+# REPO_SCOPED_TOKEN which literally is a github token with full 'repo' scope privileges.
 name: Get latest release version
 on:
   schedule:
@@ -46,7 +49,7 @@ jobs:
           echo "modified=$([ -z `git status --porcelain` ] && echo 'false' || echo 'true')" >> $GITHUB_OUTPUT
 
       - name: Commit latest versions
-        if: steps.git-check.outputs.modified == 'true'
+        if: ${{ steps.git-check.outputs.modified == 'true' }}
         run: |
           git config --global user.name 'Jason Little'
           git config --global user.email 'realtyem@users.noreply.github.com'

@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1
 # Dockerfile to build our forked matrixdotorg/synapse docker images.
+# This file is largely based on the matrixdotorg/synapse-workers Dockerfile
+# found at https://github.com/matrix-org/synapse/docker/Dockerfile-workers which is
+# used primarily(only?) for testing with the Complement integration testing suite.
 #
 # Note that it uses features which are only available in BuildKit - see
 # https://docs.docker.com/go/buildkit/ for more information.
@@ -16,6 +19,7 @@
 #
 
 ARG SYNAPSE_VERSION=latest
+ARG REDIS_VERSION=7.0.8
 ARG FROM=matrixdotorg/synapse:$SYNAPSE_VERSION
 
 ###
@@ -54,10 +58,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # based on the same debian version as the synapse image, to make sure we get
 # the expected version of libc.
 
-FROM redis:7-bullseye AS redis_base
+FROM redis:$REDIS_VERSION-bullseye AS redis_base
 
 # The synapse auto compressor is from an image we build. It won't change much
-# so there's no reason to not have this pre-compiled and just borrow it.
+# so there's no reason to not have this pre-compiled and just borrow it. This also
+# contains the custom compiled version of coturn that includes metrics support for
+# prometheus, and the postgres and redis metrics exporter tools for prometheus
 
 FROM realtyem/synapse-tools:latest as tools
 
@@ -119,8 +125,9 @@ COPY --from=deps_base /usr/share/prometheus/* /usr/share/prometheus
 COPY --from=tools /out /
 
 # Copy Synapse worker, nginx and supervisord configuration template files
-# The base start up script, used to generate some config files
-# The worker configuration start up script. Will start supervisord.
+
+# The worker configuration and base start up script, used to generate some
+# config files then start supervisord.
 COPY ./configure_workers_and_start.py /
 
 # Various config and script templates including the extended homeserver yaml
