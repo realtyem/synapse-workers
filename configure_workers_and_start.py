@@ -755,23 +755,20 @@ def add_worker_roles_to_shared_config(
             worker_name
         )
 
-        # Map of stream writer instance names to host/ports combos
-        instance_map[worker_name] = {
-            "host": "localhost",
-            "port": worker_ports["replication"],
-        }
-
-    # Update the list of stream writers. It's convenient that the name of the worker
+    # This 'for' loop serves two purposes:
+    # 1. Update the list of stream writers. It's convenient that the name of the worker
     # type is the same as the stream to write. Iterate over the whole list in case there
     # is more than one.
+    # 2. Any worker type that has a 'replication' listener gets add to the 'instance_map'.
     for worker in worker_type_list:
         if worker in singular_stream_writers:
             shared_config.setdefault("stream_writers", {}).setdefault(
                 worker, []
             ).append(worker_name)
 
-            # Map of stream writer instance names to host/ports combos
-            # For now, all stream writers need http replication ports
+        if "replication" in worker_ports.keys():
+            # Map of worker instance names to host/ports combos. If a worker type in WORKERS_CONFIG needs to be added
+            # here in the future, just add a 'replication' entry to the list in listener_resources for that worker.
             instance_map[worker_name] = {
                 "host": "localhost",
                 "port": worker_ports["replication"],
