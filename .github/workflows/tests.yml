@@ -58,6 +58,7 @@ jobs:
         uses: docker/setup-buildx-action@v2
 
       - name: Build and push
+        # This gets built and tagged as 'latest', but is actually the 'develop' branch
         uses: docker/build-push-action@v3
         with:
           context: "./synapse-workers"
