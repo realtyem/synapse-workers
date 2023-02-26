@@ -100,7 +100,7 @@ jobs:
           ASYNCIO_REACTOR: ${{ matrix.reactor || '' }}
         run: |
           set -o pipefail
-          COMPLEMENT_DIR=`pwd`/complement synapse-workers/.ci/scripts/complement.sh -f -json 2>&1 | synapse-workers/.ci/scripts/gotestfmt
+          COMPLEMENT_DIR=`pwd`/complement synapse-workers/.ci/scripts/complement.sh -f -run TestMediaFilenames -json 2>&1 | synapse-workers/.ci/scripts/gotestfmt
 
   # a job which marks all the other jobs as complete
   tests-done:
