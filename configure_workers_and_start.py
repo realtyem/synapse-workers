@@ -359,6 +359,7 @@ class Worker:
         config.setdefault("base_name", self.base_name)
         config.setdefault("index", self.index)
         config.setdefault("listener_resources", self.listener_resources)
+        config.setdefault("worker_extra_conf", self.worker_extra_conf)
         return config
 
     def __init__(self, name: str, worker_type_str: str) -> None:
