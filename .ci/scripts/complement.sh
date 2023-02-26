@@ -93,7 +93,7 @@ done
 export DOCKER_BUILDKIT=1
 
 # Change to the repository root
-cd "$(dirname $0)/.."
+cd "$(dirname $0)/../.."
 
 # Check for a user-specified Complement checkout
 if [[ -z "$COMPLEMENT_DIR" ]]; then
@@ -155,6 +155,7 @@ if [ -z "$skip_docker_build" ]; then
 
     else
 
+        pwd
         # Build the all in one Synapse image from the local checkout
         echo_if_github "::group::Build Docker image: realtyem/synapse:nightly"
         docker build -t realtyem/synapse:nightly \
@@ -167,6 +168,7 @@ if [ -z "$skip_docker_build" ]; then
         # Build the unified Complement image (from the worker Synapse image we just built).
         echo_if_github "::group::Build Docker image: complement/Dockerfile"
         docker build -t complement-synapse \
+        --build-arg FROM=realtyem/synapse:nightly \
             -f "complement/Dockerfile" "complement"
         echo_if_github "::endgroup::"
 
