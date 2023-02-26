@@ -155,7 +155,6 @@ if [ -z "$skip_docker_build" ]; then
 
     else
 
-        pwd
         # Build the all in one Synapse image from the local checkout
         echo_if_github "::group::Build Docker image: realtyem/synapse:nightly"
         docker build -t realtyem/synapse:nightly \
