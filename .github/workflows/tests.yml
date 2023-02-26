@@ -60,6 +60,7 @@ jobs:
       - name: Build and push
         # This gets built and tagged as 'latest', but is actually the 'develop' branch
         uses: docker/build-push-action@v3
+        if: ${{ !cancelled() }}
         with:
           context: "./synapse-workers"
           push: false
@@ -72,10 +73,12 @@ jobs:
           #cache-to: type=gha,mode=max
 
       - name: Prepare Complement's Prerequisites
+        if: ${{ !cancelled() }}
         run: synapse-workers/.ci/scripts/setup_complement_prerequisites.sh
 
       - name: Build Complement Image
         uses: docker/build-push-action@v3
+        if: ${{ !cancelled() }}
         with:
           context: ./synapse-workers
           push: false
@@ -86,6 +89,7 @@ jobs:
           # cache-to: type=gha,mode=max
 
       - name: Run Complement Tests
+        if: ${{ !cancelled() }}
         shell: bash
         env:
           POSTGRES: ${{ (matrix.database == 'Postgres') && 1 || '' }}
