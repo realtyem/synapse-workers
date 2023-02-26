@@ -63,6 +63,7 @@ jobs:
         with:
           context: "./synapse-workers"
           push: false
+          load: true
           file: "synapse-workers/Dockerfile-unified"
           tags: "realtyem/synapse:latest"
           build-args: |
