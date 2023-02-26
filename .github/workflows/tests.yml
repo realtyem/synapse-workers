@@ -80,7 +80,7 @@ jobs:
         uses: docker/build-push-action@v3
         if: ${{ !cancelled() }}
         with:
-          context: ./synapse-workers
+          context: ./synapse-workers/complement
           push: false
           load: true
           file: "synapse-workers/complement/Dockerfile"
