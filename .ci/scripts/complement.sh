@@ -156,22 +156,18 @@ if [ -z "$skip_docker_build" ]; then
     else
 
         # Build the all in one Synapse image from the local checkout
-        echo_if_github "::group::Build Docker image: realtyem/synapse-base:develop"
-        docker build -t realtyem/synapse:latest \
+        echo_if_github "::group::Build Docker image: realtyem/synapse:nightly"
+        docker build -t realtyem/synapse:nightly \
         --build-arg TEST_ONLY_SKIP_DEP_HASH_VERIFICATION \
         --build-arg TEST_ONLY_IGNORE_POETRY_LOCKFILE \
-          -f "docker/Dockerfile-unified" .
+        --build-arg SYNAPSE_VERSION=develop \
+          -f "Dockerfile-unified" .
         echo_if_github "::endgroup::"
-
-        # Build the workers docker image (from the base Synapse image we just built).
-        # echo_if_github "::group::Build Docker image: realtyem/synapse:develop"
-        # docker build -t realtyem/synapse:develop -f "docker/Dockerfile-workers" .
-        # echo_if_github "::endgroup::"
 
         # Build the unified Complement image (from the worker Synapse image we just built).
         echo_if_github "::group::Build Docker image: complement/Dockerfile"
         docker build -t complement-synapse \
-            -f "docker/complement/Dockerfile" "docker/complement"
+            -f "complement/Dockerfile" "complement"
         echo_if_github "::endgroup::"
 
     fi
