@@ -1130,7 +1130,8 @@ def generate_worker_files(
                 this_listener = {
                     "type": "http",
                     "port": worker.listener_port_map[listener],
-                    "resources": [{"names": [listener]}, {"compress": True}],
+                    # "resources": [{"names": [listener]}, {"compress": True}],
+                    "resources": [{"names": [listener]}],
                 }
             # The 'metrics' and 'manhole' listeners don't use 'http' as their type.
             elif listener in ["metrics", "manhole"]:
@@ -1646,6 +1647,7 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
     # Start supervisord, which will start Synapse, all of the configured worker
     # processes, redis, nginx etc. according to the config we created above.
     log("Starting supervisord")
+    log("Custom entrypoint loaded")
     flush_buffers()
     os.execle(
         "/usr/local/bin/supervisord",
