@@ -58,9 +58,37 @@ jobs:
         id: buildx
         uses: docker/setup-buildx-action@v2
 
+      - name: Build Synapse-workers Image
+        uses: docker/build-push-action@v3
+        if: ${{ !cancelled() }}
+        with:
+          context: "./synapse-workers"
+          push: false
+          load: true
+          file: "synapse-workers/Dockerfile-unified"
+          tags: "realtyem/synapse:nightly"
+          build-args: |
+            SYNAPSE_VERSION=develop
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Prepare Complement's Prerequisites
         if: ${{ !cancelled() }}
         run: synapse-workers/.ci/scripts/setup_complement_prerequisites.sh
+
+      - name: Build Complement Image
+        uses: docker/build-push-action@v3
+        if: ${{ !cancelled() }}
+        with:
+          context: ./synapse-workers/complement
+          push: false
+          load: true
+          file: "synapse-workers/complement/Dockerfile"
+          build-args: |
+            FROM=realtyem/synapse:nightly
+          tags: "complement-synapse:latest"
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Run Complement Tests
         if: ${{ !cancelled() }}
@@ -72,7 +100,7 @@ jobs:
           ASYNCIO_REACTOR: ${{ matrix.reactor || '' }}
         run: |
           set -o pipefail
-          COMPLEMENT_DIR=`pwd`/complement synapse-workers/.ci/scripts/complement.sh -run TestMediaFilenames -json 2>&1 | synapse-workers/.ci/scripts/gotestfmt
+          COMPLEMENT_DIR=`pwd`/complement synapse-workers/.ci/scripts/complement.sh -f -run TestMediaFilenames -json 2>&1 | synapse-workers/.ci/scripts/gotestfmt
 
   # a job which marks all the other jobs as complete
   tests-done:
