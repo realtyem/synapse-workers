@@ -36,7 +36,9 @@ listeners:
       - names: [federation]  # Federation APIs
         compress: true
 {% endif %}
-# This gets set by the configure_workers_and_start script to use the reverse proxy
+# This gets pulled in by the configure_workers_and_start script then added to and then
+# written to the shared.yaml to use the reverse proxy. It will be set to 8080, as the
+# reverse proxy will intercept the request and proxy it to Synapse, even as a monolith.
   - port: {{ SYNAPSE_HTTP_PORT or 8008 }}
     tls: false
     bind_addresses: ['0.0.0.0']

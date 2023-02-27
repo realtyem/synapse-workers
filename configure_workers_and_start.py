@@ -798,7 +798,7 @@ def generate_base_homeserver_config() -> None:
     Raises: CalledProcessError if calling start.py returned a non-zero exit code.
     """
     # start.py already does this for us, so just call that.
-    # note that this script is copied in in the official, monolith dockerfile
+    # note that this script is copied in from the official, monolith dockerfile
     os.environ["SYNAPSE_HTTP_PORT"] = str(MAIN_PROCESS_HTTP_LISTENER_PORT)
     os.environ["SYNAPSE_METRICS_HTTP_PORT"] = str(
         MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT
@@ -854,13 +854,12 @@ def generate_worker_files(
     # Only activate the manhole if the environment says to do so. SYNAPSE_MANHOLE_MASTER
     if enable_manhole_master:
         # The manhole listener is basically the same as other listeners. Needs a type
-        # "manhole". The workers have ports starting with 17009, so we'll take one just
-        # prior to that. In practice, we don't need to bind address because we are in
-        # docker and are not going to expose this outside.
+        # "manhole". In practice, we don't need to bind address because we are in docker
+        # and are not going to expose this outside.
         manhole_listener = [
             {
                 "type": "manhole",
-                "port": 17008,
+                "port": 18008,
             }
         ]
         listeners += manhole_listener
@@ -913,18 +912,6 @@ def generate_worker_files(
             "federation_sender,frontend_proxy,media_repository,"
             "presence,pusher,receipts,to_device,typing,synchrotron,"
             "user_dir"
-        )
-
-    if worker_types_env == "BLOW_IT_UP":
-        # 500 Postgres connections means about 48 workers. Challenge accepted.
-        # Note: my machine only seems to be ok with 45 workers, so use that.
-        worker_types_env = (
-            "account_data+presence+receipts+to_device+typing, "
-            "background_worker, client_reader:2, event_creator:2, "
-            "event_persister:5, federation_inbound:4, "
-            "federation_reader:4, federation_sender:16, "
-            "frontend_proxy, media_repository:2, pusher:2, "
-            "synchrotron:4, user_dir"
         )
 
     if not worker_types_env:
