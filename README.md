@@ -1,21 +1,25 @@
 # Synapse with Workers Docker Image
 ***BIG FAT WARNING BITS: I'm still double checking everything here is true, use with a pinch of salt.***
 
-Synapse Docker image based on Matrix.org's [workers dockerfile](https://github.com/matrix-org/synapse/docker/Dockerfile-workers). Built for use on Unraid, but can be used elsewhere.
+Synapse Docker image based on Matrix.org's [workers dockerfile](https://github.com/matrix-org/synapse/docker/Dockerfile-workers). Built for use on Unraid, but can 
+be used elsewhere. By default, Python only allows a single process because of a [GIL](https://realpython.com/python-gil/). The developers of Synapse decided that the best 
+way to bring the use of multiple CPU's into the equation was to use 'workers'.
 
 [Synapse Official repository](https://github.com/matrix-org/synapse)
 
 [Synapse Configuration Manual](https://matrix-org.github.io/synapse/latest/)
 
 Two things make this container better than others I've seen:
-1. You can delete your homeserver.yaml(the main configuration file) and it will just remake it 
- based on variables you declare. Keeps everything clean and up-to-date. Everything can be 
- stored in the template for ease of use. If you use an existing homeserver.yaml, you will need 
- to edit homeserver.yaml manually to use 8080 as the main listener port instead of the default 
- 8008 because of the internal reverse proxy.
-2. Adding workers so that it can truly be multiprocess capable so as simple as adding the names
- to a variable and recreating(force updating) the image. All the worker details including reverse proxy
- and replication is handled for you. Add and remove workers as you want.
+1. You can delete your homeserver.yaml(the main configuration file) and it will just 
+ remake it based on variables you declare. Keeps everything clean and up-to-date. 
+ Everything can be  stored in the template for ease of use. If you use an existing 
+ homeserver.yaml, you will need to edit homeserver.yaml manually to use 8080 as the main
+ listener port instead of the default 8008 because of the internal reverse proxy.
+2. Adding workers so that it can truly be multiprocess capable is as simple as adding 
+ the names to an environmental variable and recreating(or force updating) the container.
+ All the worker details including reverse proxying of endpoints and replication is 
+ handled for you. Add and remove workers as you want.
+
 
 ### Required Template bits
 *(if remaking your configuration, unused otherwise)*:
@@ -33,18 +37,23 @@ These variables below can be set so that every time the image is updated/remade 
 
 Everything below can be added but isn't required to get everything up and running. Most just 
 allow for easier regeneration of main configuration.
-* SYNAPSE_WORKERS_WRITE_LOGS_TO_DISK=1 or 0
-* SYNAPSE_LOG_LEVEL=ERROR, WARNING, INFO, DEBUG. INFO is default
+* *POSTGRES_HOST*: IP address like 127.0.0.1 or path to the unix socket. Default is 'db'
+* *POSTGRES_PORT*: 5432 is the default.
+* *POSTGRES_DB*: synapse is the default, but needs to be whatever the actual 
+  database name is inside the Postgres instance
+* *POSTGRES_USER*: The name of the database user. Default is 'synapse'
+* *POSTGRES_PASSWORD*: The password associated with the Postgres user for your 
+  database. The only actually required Postgres variable with no defaults.
+* *SYNAPSE_WORKERS_WRITE_LOGS_TO_DISK*: 1 or 0
+* *SYNAPSE_LOG_LEVEL*: ERROR, WARNING, INFO, DEBUG. INFO is default
 * SYNAPSE_METRICS: 'yes', '1', 'true', or 'on'. Anything else is a 'no'
-* POSTGRES_HOST=127.0.0.1 or whatever you use. Database is not builtin.  Default is 'db'
-* POSTGRES_PORT=5432 which is the default.
-* POSTGRES_DB: synapse is the default
-* POSTGRES_USER=db_synapse_user Default is 'synapse'
-* POSTGRES_PASSWORD=db_synapse_password
+
 Not required to set as the defaults are good. Only accessed on first generate of main config, ignored otherwise.
-* SYNAPSE_CONFIG_DIR: /data is the default
-* SYNAPSE_DATA_DIR: /data is the default
-* SYNAPSE_CONFIG_PATH: SYNAPSE_CONFIG_DIR + /homeserver.yaml is the default.
+* *SYNAPSE_CONFIG_DIR* and *SYNAPSE_DATA_DIR*: /data is the default. Both point to 
+  the same place, but have different uses. If you find you need to change one(which 
+  you shouldn't), change both.
+* *SYNAPSE_CONFIG_PATH*: SYNAPSE_CONFIG_DIR + /homeserver.yaml is the default. 
+  Shouldn't need to change.
 * SYNAPSE_NO_TLS: leave this alone, it gets overridden in the source because "unsupported in worker mode". You should be on Unraid, your reverse proxy handles this anyways.
 * SYNAPSE_EVENT_CACHE_SIZE: default is 10K, don't bother changing as there are better ways to increase caching if you have the RAM.
 * SYNAPSE_MAX_UPLOAD_SIZE: default is 50M. Recommend changing to 2048M to avoid uploading issues. Nginx will be the bottleneck.
