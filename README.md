@@ -7,26 +7,48 @@ way to bring the use of multiple CPU's into the equation was to use 'workers'.
 
 [Synapse Official repository](https://github.com/matrix-org/synapse)
 
-[Synapse Configuration Manual](https://matrix-org.github.io/synapse/latest/)
+[Synapse Documentation](https://matrix-org.github.io/synapse/latest/)
+
+[Synapse Configuration Manual](https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html)
 
 Two things make this container better than others I've seen:
 1. You can delete your homeserver.yaml(the main configuration file) and it will just 
  remake it based on variables you declare. Keeps everything clean and up-to-date. 
- Everything can be  stored in the template for ease of use. If you use an existing 
- homeserver.yaml, you will need to edit homeserver.yaml manually to use 8080 as the main
- listener port instead of the default 8008 because of the internal reverse proxy.
-2. Adding workers so that it can truly be multiprocess capable is as simple as adding 
+ Everything can be stored in the template for ease of use. If you use an existing 
+ homeserver.yaml, you shouldn't need to do anything to update your listeners(TODO: need to
+ check this is true if using the historical 8448 port still. I have no way to verify
+ this.)
+2. Adding workers so that it can truly be multiprocess capable is as simple as adding
  the names to an environmental variable and recreating(or force updating) the container.
  All the worker details including reverse proxying of endpoints and replication is 
  handled for you. Add and remove workers as you want.
+3. Internal reverse proxy. Allows handling of federation traffic and worker endpoints 
+ dynamically. As a worker that has no traffic directed at it is useless, this takes 
+ care of the details. You will still need an external reverse proxy to handle the TLS 
+ encryption(if you are using Unraid, swag is excellent at this).
+4. Support for metrics. If you like to look at pretty graphs in Grafana, this is 
+ prometheus ready.
+## Setup
+### Pre-existing configuration
+Moving an existing instance of your homeserver from the normal docker image to this one
+is a fairly simple affair. Merely change your existing monolith docker image to point to
+this image instead. If I've done my homework right, it should Just Work(TM). If you have
+any existing command line arguments you pass as part of your template(such as `-m 
+synapse.app.homeserver`) you may delete all of those as they won't be needed any more.
 
+### New configuration
+Most guides will get you up and running ok(provided the guide isn't seriously out of 
+date), and I highly recommend you use the monolith images to get started, then switch 
+to this one. The recommended method is still using the Official Synapse Manual(linked 
+above). Most(but not all) configuration options can be set in advance with environmental
+variables(see below) if you do not have a homeserver.yaml already made.
 
-### Required Template bits
+### Environment Variables
 *(if remaking your configuration, unused otherwise)*:
-* *SYNAPSE_SERVER_NAME*: example.com or matrix.example.com or some such. If you have an existing installation, make sure you don't change this as many things will break.
+* *SYNAPSE_SERVER_NAME*: . If you have an existing database, make sure you don't change this as many things will break.
 * *SYNAPSE_REPORT_STATS*: yes or no, explicitly can't be true or false or 1 or 0.
 
-These variables below can be set so that every time the image is updated/remade they will activate.<br>
+This variable is where the magic happens. It is where workers instances are requested. It can be changed so that every time the image is updated/remade they will activate.<br>
 * *SYNAPSE_WORKER_TYPES*: two major options here:
   * leave blank or empty for a normal monolith installation.
   * Include a string of the worker types separated by a comma. Full list of worker types can be
