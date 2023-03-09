@@ -300,12 +300,16 @@ NGINX_LOCATION_CONFIG_BLOCK = """
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_set_header "Connection" "";
     }}
 """
 
 NGINX_UPSTREAM_CONFIG_BLOCK = """
 upstream {upstream_name} {{
+    zone upstreams 64K;
 {body}
+    keepalive {num_of_hosts};
 }}
 """
 
@@ -1348,10 +1352,14 @@ def generate_worker_files(
             for port in upstream_worker_ports:
                 body += "    server localhost:%d;\n" % (port,)
 
+            # Need this to determine keepalive argument, need multiple of 2
+            num_of_hosts = len(upstream_worker_ports) * 2
+
             # Everything else, just use the default basic round-robin scheme.
             nginx_upstream_config += NGINX_UPSTREAM_CONFIG_BLOCK.format(
                 upstream_name=upstream_name,
                 body=body,
+                num_of_hosts=num_of_hosts,
             )
 
     # Finally, we'll write out the config files.
