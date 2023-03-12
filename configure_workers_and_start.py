@@ -291,7 +291,7 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
         "endpoint_patterns": [
             "^/_matrix/federation/(v1|v2)/version$",
             "^/_matrix/federation/(v1|v2)/user/keys/claim$",
-            "^/_matrix/federation/(v1|v2)/user/keys/query$",
+            # "^/_matrix/federation/(v1|v2)/user/keys/query$",
             "^/_matrix/federation/(v1|v2)/send_knock/.*/.*$",
             # "^/_matrix/federation/(v1|v2)/openid/userinfo$",
             "^/_matrix/federation/(v1|v2)/make_knock/.*/.*$",
