@@ -296,7 +296,6 @@ HTTP_BASED_LISTENER_RESOURCES = [
 NGINX_LOCATION_CONFIG_BLOCK = """
     location ~* {endpoint} {{
         proxy_pass {upstream};
-        proxy_buffering off;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Host $host;
@@ -309,7 +308,7 @@ NGINX_UPSTREAM_CONFIG_BLOCK = """
 upstream {upstream_name} {{
     zone upstreams 64K;
 {body}
-    keepalive {num_of_hosts};
+    keepalive {keepalive_idle_connections};
 }}
 """
 
@@ -455,75 +454,131 @@ class NginxConfig:
     This represents collected data to plug into the various nginx configuration points.
 
     Attributes:
-        locations: A dict of locations and the name of thw upstream_host responsible for
-            it. e.g.
+        locations: A dict of locations and the name of the upstream_host responsible for
+            it. This will be used in the final nginx file. e.g.
             '/_matrix/federation/.*/send':'bob-federation_inbound.federation'
-        locations_to_upstream_list: A dict of locations and all the collected upstreams
-            that could point to it. Used to process locations. e.g.
-            '/_matrix/federation/.*/send':{'federation_inbound.federation','bob.federation'}
-        upstreams_to_ports: A dict of upstream host with a Set of ports.
+        locations_to_port_set: A dict of locations and a set of collected ports.
+            e.g. {'/endpoint1': {1234, 1235, ...}}
+        port_to_upstream_name: A map of port to the worker's base name related to it.
+            e.g. {1234: "worker_base_name"}
+        port_to_listener_type: A map of port to worker's listener_type. Functionally,
+            not important, but used to append to the upstream name so visually can
+            identify what type of listener it's pointing to.
+            e.g. { 1234: "client" }
+        upstreams_to_ports: A map of upstream host to a Set of ports. This is used in
+            the final nginx file.
         upstreams_roles: Set of worker_type roles. Used to calculate load-balancing.
 
     """
 
     locations: Dict[str, str]
-    locations_to_upstream_list: Dict[str, List[str]]
+    locations_to_port_set: Dict[str, Set[int]]
+    port_to_upstream_name: Dict[int, str]
+    port_to_listener_type: Dict[int, str]
     upstreams_to_ports: Dict[str, Set[int]]
     upstreams_roles: Dict[str, Set[str]]
 
     def __init__(self) -> None:
         self.locations = {}
-        self.locations_to_upstream_list = {}
+        self.locations_to_port_set = {}
+        self.port_to_upstream_name = {}
+        self.port_to_listener_type = {}
         self.upstreams_to_ports = {}
         self.upstreams_roles = {}
-
-    def add_location(
-        self,
-        location: str,
-        upstream_name: str | List[str],
-    ) -> None:
-        if isinstance(upstream_name, str):
-            self.locations_to_upstream_list.setdefault(location, []).append(
-                upstream_name
-            )
-        else:
-            self.locations_to_upstream_list.setdefault(location, []).extend(
-                upstream_name
-            )
-        # Deduplicate this list. We don't just use a set because accessing a set is a
-        # PITA without an iterator.
-        self.locations_to_upstream_list[location] = list(
-            set(self.locations_to_upstream_list[location])
-        )
-        debug(
-            f"add_location: full list of host: "
-            f"'{str(self.locations_to_upstream_list[location])}' "
-            f"Added upstream_name: '{str(upstream_name)}' location: '{location}'"
-        )
 
     def add_upstreams(
         self,
         host: str,
-        worker_roles: List[str],
-        port: List[int],
+        worker_roles: Set[str],
+        ports: Set[int],
     ) -> None:
         """
-        Add a new upstream host to NginxConfig.upstreams_to_ports and upstreams_roles
-            when given the worker roes as a list and a list of ports to assign to it.
+        Add a new upstream host to NginxConfig.upstreams_to_ports and
+            NginxConfig.upstreams_roles when given the worker roles as a set and a
+            set of ports to assign to it.
 
         Args:
             host: The name to use for the load-balancing upstream nginx block.
-            worker_roles: A list of roles this upstream block can be responsible for.
-            port: A list containing a single port or multiple ports to assign.
+            worker_roles: A Set of roles this upstream block can be responsible for.
+            ports: A Set containing a single port or multiple ports to assign.
         Returns: None
         """
+        debug(
+            f"Making new upstream: {host}\n - roles: {worker_roles}\n - ports: {ports}"
+        )
         # Initialize this (possible new) host entries
-        self.upstreams_to_ports.setdefault(host, set()).update(port)
+        self.upstreams_to_ports.setdefault(host, set()).update(ports)
         self.upstreams_roles.setdefault(host, set()).update(worker_roles)
 
-        debug(f"add_upstreams: host: '{host}', port: '{str(port)}'")
-        debug(f"add_upstreams: upstreams_to_ports: '{self.upstreams_to_ports[host]}")
-        debug(f"add_upstreams: upstreams_roles: '{str(self.upstreams_roles[host])}")
+    def create_final_upstreams_and_locations(self):
+        """
+        Use to create upstream data to be used in the written out Nginx config file.
+
+        """
+        # Primarily used to create the necessary data for an upstream block to be
+        # written into the nginx config file. For such, the upstream needs a name and
+        # port(s). Additionally, some endpoints are more efficiently used if hashed
+        # to consistently point to the same worker(or port, in this context). Finally,
+        # will create the nginx.locations map used for the final nginx config file that
+        # associates the correct upstream name to a given endpoint.
+
+        # The upstream name created will be in the format of "name.listener_type" and
+        # will not have "http://" added to it.
+
+        # Note that this does create upstreams even with a single port. Nginx says
+        # that doing so, and adding in correct 'zone' and 'keepalive' declarations,
+        # allows for better performance because of shared_mem usage for state
+        # information on upstreams and by recycling open connections instead of
+        # constantly creating and closing them. The connection pool is naturally
+        # quick large, but a given closed connection holds the file descriptors for 2
+        # minutes before adding it back to the pool.
+
+        # Uses data from
+        #   locations_to_port_set to find out what ports can serve a given endpoint
+        #   port_to_upstream_name to get the hostname used by this port, typically a
+        #       worker's base name is used for convenient grouping. Multiple
+        #       non-matching hostnames will be concatenated with a '-' when creating
+        #       this upstream name.
+        #   port_to_listener_type to get the information on what kind of listener
+        #       type(like 'client' or 'federation') this port is associated with.
+        #       Functionally, this allows a given upstream to separate client requests
+        #       from federation requests(and etc) since each listener type has it's own
+        #       port. Also has a visual use for a person inspecting the config file.
+        #   upstreams_roles to add a worker's roles for use in the specializing
+        #       load-balancing by client IP or other hashing method.
+
+        for endpoint_pattern, port_set in self.locations_to_port_set.items():
+            # Reset these for each run
+            new_nginx_upstream_set: Set[str] = set()
+            new_nginx_upstream_listener_set: Set[str] = set()
+            new_nginx_upstream_roles: Set[str] = set()
+
+            # Check each port number. For a single-port upstream this only iterates once
+            for each_port in port_set:
+                # Get the worker.base_name for the upstream name
+                new_nginx_upstream_set.add(self.port_to_upstream_name[each_port])
+                # Get the listener_type, as it's appended to the upstream name
+                new_nginx_upstream_listener_set.add(
+                    self.port_to_listener_type[each_port])
+                # Get the workers roles for specialized load-balancing
+                new_nginx_upstream_roles.update(
+                    self.upstreams_roles[self.port_to_upstream_name[each_port]]
+                )
+
+            # This will be the name of the upstream
+            new_nginx_upstream = f"{'-'.join(sorted(new_nginx_upstream_set))}"
+            new_nginx_upstream += f".{'-'.join(sorted(new_nginx_upstream_listener_set))}"
+
+            # Check this upstream exists, if not then make it
+            if new_nginx_upstream not in self.upstreams_to_ports:
+                self.add_upstreams(
+                    new_nginx_upstream,
+                    new_nginx_upstream_roles,
+                    port_set
+                )
+
+            # Finally, update nginx.locations with new upstream
+            self.locations[endpoint_pattern] = new_nginx_upstream
 
 
 class Workers:
@@ -764,7 +819,8 @@ def add_worker_roles_to_shared_config(
     # 1. Update the list of stream writers. It's convenient that the name of the worker
     # type is the same as the stream to write. Iterate over the whole list in case there
     # is more than one.
-    # 2. Any worker type that has a 'replication' listener gets add to the 'instance_map'.
+    # 2. Any worker type that has a 'replication' listener gets add to the
+    # 'instance_map'.
     for worker in worker_type_list:
         if worker in singular_stream_writers:
             shared_config.setdefault("stream_writers", {}).setdefault(
@@ -772,8 +828,9 @@ def add_worker_roles_to_shared_config(
             ).append(worker_name)
 
         if "replication" in worker_ports.keys():
-            # Map of worker instance names to host/ports combos. If a worker type in WORKERS_CONFIG needs to be added
-            # here in the future, just add a 'replication' entry to the list in listener_resources for that worker.
+            # Map of worker instance names to host/ports combos. If a worker type in
+            # WORKERS_CONFIG needs to be added here in the future, just add a
+            # 'replication' entry to the list in listener_resources for that worker.
             instance_map[worker_name] = {
                 "host": "localhost",
                 "port": worker_ports["replication"],
@@ -870,6 +927,11 @@ def generate_worker_files(
 
     # Start worker ports from this arbitrary port
     worker_port = 18009
+
+    # A keepalive multiplier, this gets multiplied by the number of server lines in a
+    # given upstream. This value is a maximum number of idle connections to keepalive.
+    # 1 is fine for testing, 32 is recommended for production.
+    keepalive_multiplier = 32
 
     # The main object where our workers configuration will live.
     workers = Workers(worker_port)
@@ -987,8 +1049,7 @@ def generate_worker_files(
             else:
                 error(
                     "Multiplier signal(:) for worker found, but incorrect components: "
-                    + worker_type
-                    + ". Please fix."
+                    f"'{worker_type}'. Please fix."
                 )
             # As long as there are more than 0, we add one to the list to make below.
             while count > 0:
@@ -1011,7 +1072,7 @@ def generate_worker_files(
             if len(worker_type_split) > 2:
                 error(
                     "To many worker names requested for a single worker, or to many "
-                    "'='. Please fix: " + worker_type
+                    f"'='. Please fix: '{worker_type}'"
                 )
             # if there was no name given, this will still be an empty string
             requested_worker_name = worker_type_split[0]
@@ -1032,10 +1093,7 @@ def generate_worker_files(
             # workers merged together. Note for Complement: it would only be seen in the
             # logs for blueprint construction(which are not collected).
             log(
-                "Worker name request found: "
-                + worker_base_name
-                + ", for: "
-                + worker_type
+                f"Worker name request found: '{worker_base_name}', for: '{worker_type}'"
             )
 
         else:
@@ -1049,8 +1107,8 @@ def generate_worker_files(
                 if worker_base_name != worker_type:
                     log(
                         "Default worker name would have contained spaces, which is not "
-                        "allowed(" + worker_type + "). Reformed name to not contain "
-                        "spaces: " + worker_base_name
+                        f"allowed: '{worker_type}'. Reformed name to not contain "
+                        f"spaces: '{worker_base_name}'"
                     )
             else:
                 # No spaces, good. Use it.
@@ -1084,7 +1142,7 @@ def generate_worker_files(
         # Every worker gets a separate port to handle it's 'health' resource. Append it
         # to the list so docker can check it.
         healthcheck_urls.append(
-            "http://localhost:%d/health" % (worker.listener_port_map["health"])
+            f"http://localhost:{worker.listener_port_map['health']}/health"
         )
 
         # Prepare the bits that will be used in the worker.yaml file
@@ -1141,156 +1199,46 @@ def generate_worker_files(
             worker_log_config_filepath=log_config_filepath,
         )
 
+        # TODO: factor this section out into a separate function
         # Add nginx location blocks for this worker's endpoints (if any are defined)
-        # There are now the capability of having multiple types of listeners. We are
-        # interested in federation, client, media for the reverse proxy
+        # There are now the capability of having multiple types of listeners.
+        # Inappropriate types of listeners were already filtered out.
         for listener_type, patterns in worker.endpoint_patterns.items():
             for pattern in patterns:
-                # Construct upstream objects based on endpoint patterns for each worker.
-                # Upstreams are named after the worker_base_name + the listener
-                # type, allowing separation of client from federation from media
-                # endpoints. Upstreams which are later combined will be given
-                # their own entry in nginx.upstreams. We don't include the
-                # 'http://' here, it will be added on the spot as necessary.
-                upstream_name = worker.base_name + "." + listener_type
-
-                # Create or add to a load-balanced upstream data for this worker.
-                # Shortcut this if possible, as it will iterate over every endpoint
-                # pattern and for client_reader and federation_reader that can be
-                # expensive.
-                if not nginx.upstreams_to_ports.get(upstream_name) or (
+                # Collect port numbers for this endpoint pattern for later combination
+                nginx.locations_to_port_set.setdefault(pattern, set()).add(
                     worker.listener_port_map[listener_type]
-                    not in nginx.upstreams_to_ports[upstream_name]
-                ):
-                    # it doesn't exist, add it
-                    nginx.add_upstreams(
-                        upstream_name,
-                        worker.types_list,
-                        [worker.listener_port_map[listener_type]],
-                    )
-
-                # Add this upstream to this endpoint pattern in the nginx object
-                nginx.add_location(pattern, upstream_name)
-
-    # At this point, we have some nginx structures:
-    # nginx.locations_to_upstream_list:
-    #   { "endpoint": ["upstream_name"] }
-    #
-    # upstreams_to_port:
-    #   { "upstream_name", ["port1", "port2"]}
-    #
-    # upstream_roles: (This isn't used by nginx directly, but will help decide
-    # specialized load-balancing)
-    #   { "upstream_name", ["pusher", "user_dir", "whatever etc."]
-
-    # Need to combine multiple upstream_name's into one, then update upstreams and
-    # nginx.locations with new values. Join the new upstream names with a '-' to
-    # distinguish from combined worker_types. Note that this only happens if multiple
-    # upstreams exist for an endpoint, which is why we use the
-    # nginx.locations_to_upstream_list, and not the nginx.upstreams directly. If
-    # there is only one upstream for this endpoint, then it's unnecessary for it to
-    # be an upstream. Mutate it into a direct 'localhost:port'. 'http://' will be
-    # added before writing.
-
-    for (
-        endpoint_url,
-        upstreams_from_locations,
-    ) in nginx.locations_to_upstream_list.items():
-        new_nginx_upstream: str = ""
-        # debug("endpoint_url: " + endpoint_url)
-        # debug("upstreams_from_locations: " + str(upstreams_from_locations))
-        # Deal with a single upstream
-        if len(upstreams_from_locations) < 2:
-            # It's a single element in a list. Grab it so we can extract the port data.
-            for upstream in upstreams_from_locations:
-                # Deal with single port
-                if len(nginx.upstreams_to_ports[upstream]) < 2:
-                    # Need to check with upstreams_to_ports to get the port number.
-                    # This is called 'tuple unpacking' and it's dumb looking.
-                    # Alternatively, 'next(iter(of_set))' would do, but according to
-                    # the forums, it's 3 times as slow when only using it on a single
-                    # item set like this, with multiple items it's faster.
-                    (port,) = nginx.upstreams_to_ports[upstream]
-                    new_nginx_upstream += "localhost:%s" % port
-                    debug(
-                        f"- Setting new upstream from single upstream: '{upstream}' "
-                        f"to port: '{new_nginx_upstream}'"
-                    )
-                else:
-                    # This upstream has more than 1 port, which means we just use the
-                    # name directly as it was made earlier.
-                    debug(f"- Using existing upstream: '{upstream}'")
-                    new_nginx_upstream = upstream
-        else:
-            # Combine the names of the upstreams, if there is more than one.
-            name_pieces: List[str] = []
-            resource: List[str] = []
-            debug(
-                "- Found multiple upstreams in "
-                f"upstreams_from_location: '{upstreams_from_locations}'"
-            )
-            for name in upstreams_from_locations:
-                name_split = name.split(".")
-                name_pieces.append(name_split[0])
-                resource.append(name_split[1])
-            # Sort the names, it's prettier.
-            new_nginx_upstream = "-".join(sorted(name_pieces))
-            # Re-append the resource name. There will always be at least one, so just
-            # use it. This might create oddities with media_repository which are purely
-            # cosmetic.
-            new_nginx_upstream += "." + resource[0]
-
-            # Check for existing, if so we don't have to do more here
-            if new_nginx_upstream not in nginx.upstreams_to_ports:
-                debug(f"- Adding new upstream: '{new_nginx_upstream}'")
-                new_nginx_upstream_port_list: list[int] = []
-                new_nginx_upstream_role_list: list[str] = []
-
-                # Compile the newly merged upstream data
-                for upstream in upstreams_from_locations:
-                    # If this is a combined upstream, there may not be port data for
-                    # it in the nginx.upstream dict. Check and update if missing.
-                    new_nginx_upstream_port_list.extend(
-                        nginx.upstreams_to_ports[upstream]
-                    )
-
-                    # If this is a combined upstream, there won't be role data for it
-                    # either
-                    new_nginx_upstream_role_list.extend(nginx.upstreams_roles[upstream])
-
-                    # Deduplicate to cut down on extra processing(plus it looks nicer)
-                    new_nginx_upstream_role_list = list(
-                        set(new_nginx_upstream_role_list)
-                    )
-
-                # The combined name wasn't found in nginx.upstreams_to_port, so add
-                # it now that the ports and roles are compiled.
-                nginx.add_upstreams(
-                    new_nginx_upstream,
-                    new_nginx_upstream_role_list,
-                    new_nginx_upstream_port_list,
                 )
+            # Set lookup maps to be used for combining upstreams in a moment.
+            # Need the worker's base name
+            nginx.port_to_upstream_name.setdefault(
+                worker.listener_port_map[listener_type],
+                worker.base_name
+            )
+            # The listener type
+            nginx.port_to_listener_type.setdefault(
+                worker.listener_port_map[listener_type],
+                listener_type
+            )
+            # And the list of roles this(possibly combination) worker can fill
+            nginx.upstreams_roles.setdefault(worker.base_name, set()).update(
+                worker.types_list
+            )
 
-        # Update nginx.locations with new upstream
-        nginx.locations[endpoint_url] = new_nginx_upstream
+    # Should have all the data needed to create nginx configuration now
+    nginx.create_final_upstreams_and_locations()
 
-    # Compile list of actual upstreams needed. Add them all, then deduplicate.
-    upstreams_to_use: List[str] = []
-    debug("Compiling final list of upstreams.")
-    for upstream in nginx.locations.values():
-        debug(f"- Adding '{upstream}'")
-        upstreams_to_use.append(upstream)
-    # Deduplicate
-    upstreams_to_use = list(set(upstreams_to_use))
+    # There are now two dicts to pull data from to construct the nginx config files.
+    # nginx.locations has all the endpoints and the upstream they point at
+    # nginx.upstreams_to_ports contains the upstream name and the ports it will need
 
     # Build the nginx location config blocks now that the upstreams are settled. Now is
     # when we pre-pend the 'http://'
     nginx_location_config = ""
     for endpoint_url, upstream_to_use in nginx.locations.items():
-        # At this point, nginx.locations[endpoint] is a simple string.
         nginx_location_config += NGINX_LOCATION_CONFIG_BLOCK.format(
             endpoint=endpoint_url,
-            upstream="http://" + upstream_to_use,
+            upstream=f"http://{upstream_to_use}",
         )
 
     # Determine the load-balancing upstreams to configure
@@ -1301,66 +1249,62 @@ def generate_worker_files(
     roles_lb_header_list = ["synchrotron"]
     roles_lb_ip_list = ["federation_inbound"]
 
-    for upstream_name in upstreams_to_use:
+    for upstream_name, upstream_worker_ports in nginx.upstreams_to_ports.items():
         body = ""
-        upstream_worker_ports = nginx.upstreams_to_ports.get(upstream_name)
-        debug(
-            f"upstream_name: '{upstream_name}' "
-            f"upstream_worker_ports: '{upstream_worker_ports}'"
+        # upstream_worker_ports = nginx.upstreams_to_ports.get(upstream_name)
+        roles_list = nginx.upstreams_roles[upstream_name]
+
+        # This presents a dilemma. Some endpoints are better load-balanced by
+        # Authorization header, and some by remote IP. What do you do if a combo
+        # worker was requested that has endpoints for both? As it is likely but
+        # not impossible that a user will be on the same IP if they have multiple
+        # devices(like at home on Wi-Fi), I believe that balancing by IP would be
+        # the broader reaching choice. This is probably only slightly better than
+        # round-robin. As such, leave balancing by remote IP as the first of the
+        # conditionals below, so if both would apply the first is used.
+
+        # Three additional notes:
+        #   1. Federation endpoints shouldn't (necessarily) have Authorization
+        #       headers, so using them on these endpoints would be a moot point.
+        #   2. For Complement, this situation is reversed as there is only ever a
+        #       single IP used during tests, 127.0.0.1.
+        #   3. IIRC, it may be possible to hash by both at once, or at least have
+        #       both hashes on the same line. If I understand that correctly, the
+        #       one that doesn't exist is effectively ignored. However, that
+        #       requires increasing the hashmap size in the nginx master config
+        #       file, which would take more jinja templating(or at least a 'sed'),
+        #       and may not be accepted upstream. Based on previous experiments,
+        #       increasing this value was required for hashing by room id, so may
+        #       end up being a path forward anyway.
+
+        # Some endpoints should be load-balanced by client IP. This way,
+        # if it comes from the same IP, it goes to the same worker and should be
+        # a smarter way to cache data. This works well for federation.
+        if any(x in roles_lb_ip_list for x in roles_list):
+            body += "    hash $proxy_add_x_forwarded_for;\n"
+
+        # Some endpoints should be load-balanced by Authorization header. This
+        # means that even with a different IP, a user should get the same data
+        # from the same upstream source, like a synchrotron worker, with smarter
+        # caching of data.
+        elif any(x in roles_lb_header_list for x in roles_list):
+            body += "    hash $http_authorization consistent;\n"
+
+        # Add specific "hosts" by port number to the upstream block.
+        for port in upstream_worker_ports:
+            body += f"    server localhost:{port};\n"
+
+        # Need this to determine keepalive argument, need multiple of 2. Double the
+        # number, as each connection to an upstream actually has two sockets. Then apply
+        # our multiplier.
+        keepalive_idle_connections = len(upstream_worker_ports) * 2 * keepalive_multiplier
+
+        # Everything else, just use the default basic round-robin scheme.
+        nginx_upstream_config += NGINX_UPSTREAM_CONFIG_BLOCK.format(
+            upstream_name=upstream_name,
+            body=body,
+            keepalive_idle_connections=keepalive_idle_connections,
         )
-        # This only fires if there is need to create an actual upstream block.
-        if upstream_worker_ports and len(upstream_worker_ports) > 1:
-            # There is more than one port, do specialized load-balancing.
-            roles_list = list(nginx.upstreams_roles[upstream_name])
-            # This presents a dilemma. Some endpoints are better load-balanced by
-            # Authorization header, and some by remote IP. What do you do if a combo
-            # worker was requested that has endpoints for both? As it is likely but
-            # not impossible that a user will be on the same IP if they have multiple
-            # devices(like at home on Wi-Fi), I believe that balancing by IP would be
-            # the broader reaching choice. This is probably only slightly better than
-            # round-robin. As such, leave balancing by remote IP as the first of the
-            # conditionals below, so if both would apply the first is used.
-
-            # Three additional notes:
-            #   1. Federation endpoints shouldn't (necessarily) have Authorization
-            #       headers, so using them on these endpoints would be a moot point.
-            #   2. For Complement, this situation is reversed as there is only ever a
-            #       single IP used during tests, 127.0.0.1.
-            #   3. IIRC, it may be possible to hash by both at once, or at least have
-            #       both hashes on the same line. If I understand that correctly, the
-            #       one that doesn't exist is effectively ignored. However, that
-            #       requires increasing the hashmap size in the nginx master config
-            #       file, which would take more jinja templating(or at least a 'sed'),
-            #       and may not be accepted upstream. Based on previous experiments,
-            #       increasing this value was required for hashing by room id, so may
-            #       end up being a path forward anyway.
-
-            # Some endpoints should be load-balanced by client IP. This way,
-            # if it comes from the same IP, it goes to the same worker and should be
-            # a smarter way to cache data. This works well for federation.
-            if any(x in roles_lb_ip_list for x in roles_list):
-                body += "    hash $proxy_add_x_forwarded_for;\n"
-
-            # Some endpoints should be load-balanced by Authorization header. This
-            # means that even with a different IP, a user should get the same data
-            # from the same upstream source, like a synchrotron worker, with smarter
-            # caching of data.
-            elif any(x in roles_lb_header_list for x in roles_list):
-                body += "    hash $http_authorization consistent;\n"
-
-            # Add specific "hosts" by port number to the upstream block.
-            for port in upstream_worker_ports:
-                body += "    server localhost:%d;\n" % (port,)
-
-            # Need this to determine keepalive argument, need multiple of 2
-            num_of_hosts = len(upstream_worker_ports) * 2
-
-            # Everything else, just use the default basic round-robin scheme.
-            nginx_upstream_config += NGINX_UPSTREAM_CONFIG_BLOCK.format(
-                upstream_name=upstream_name,
-                body=body,
-                num_of_hosts=num_of_hosts,
-            )
 
     # Finally, we'll write out the config files.
 
@@ -1383,7 +1327,7 @@ def generate_worker_files(
 
     debug("nginx.locations: " + json.dumps(nginx.locations, indent=4))
     debug("nginx.upstreams_to_ports: " + str(nginx.upstreams_to_ports))
-    debug("upstreams_to_use: " + str(upstreams_to_use))
+    # debug("upstreams_to_use: " + str(upstreams_to_use))
     debug("nginx_upstream_config: " + str(nginx_upstream_config))
     debug("global shared_config: " + json.dumps(shared_config, indent=4))
     workers_in_use = len(worker_types) > 0
