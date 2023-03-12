@@ -559,7 +559,8 @@ class NginxConfig:
                 new_nginx_upstream_set.add(self.port_to_upstream_name[each_port])
                 # Get the listener_type, as it's appended to the upstream name
                 new_nginx_upstream_listener_set.add(
-                    self.port_to_listener_type[each_port])
+                    self.port_to_listener_type[each_port]
+                )
                 # Get the workers roles for specialized load-balancing
                 new_nginx_upstream_roles.update(
                     self.upstreams_roles[self.port_to_upstream_name[each_port]]
@@ -567,14 +568,14 @@ class NginxConfig:
 
             # This will be the name of the upstream
             new_nginx_upstream = f"{'-'.join(sorted(new_nginx_upstream_set))}"
-            new_nginx_upstream += f".{'-'.join(sorted(new_nginx_upstream_listener_set))}"
+            new_nginx_upstream += (
+                f".{'-'.join(sorted(new_nginx_upstream_listener_set))}"
+            )
 
             # Check this upstream exists, if not then make it
             if new_nginx_upstream not in self.upstreams_to_ports:
                 self.add_upstreams(
-                    new_nginx_upstream,
-                    new_nginx_upstream_roles,
-                    port_set
+                    new_nginx_upstream, new_nginx_upstream_roles, port_set
                 )
 
             # Finally, update nginx.locations with new upstream
@@ -1212,13 +1213,11 @@ def generate_worker_files(
             # Set lookup maps to be used for combining upstreams in a moment.
             # Need the worker's base name
             nginx.port_to_upstream_name.setdefault(
-                worker.listener_port_map[listener_type],
-                worker.base_name
+                worker.listener_port_map[listener_type], worker.base_name
             )
             # The listener type
             nginx.port_to_listener_type.setdefault(
-                worker.listener_port_map[listener_type],
-                listener_type
+                worker.listener_port_map[listener_type], listener_type
             )
             # And the list of roles this(possibly combination) worker can fill
             nginx.upstreams_roles.setdefault(worker.base_name, set()).update(
@@ -1297,7 +1296,9 @@ def generate_worker_files(
         # Need this to determine keepalive argument, need multiple of 2. Double the
         # number, as each connection to an upstream actually has two sockets. Then apply
         # our multiplier.
-        keepalive_idle_connections = len(upstream_worker_ports) * 2 * keepalive_multiplier
+        keepalive_idle_connections = (
+            len(upstream_worker_ports) * 2 * keepalive_multiplier
+        )
 
         # Everything else, just use the default basic round-robin scheme.
         nginx_upstream_config += NGINX_UPSTREAM_CONFIG_BLOCK.format(
