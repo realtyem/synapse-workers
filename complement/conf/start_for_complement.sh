@@ -67,7 +67,9 @@ if [[ -n "$SYNAPSE_COMPLEMENT_USE_WORKERS" ]]; then
       client_reader, \
       appservice, \
       stream_writers=account_data+to_device+presence+receipts+typing, \
-      pusher"
+      pusher, \
+      other_client_endpoints, \
+      other_fed_endpoints"
 
   fi
   log "Workers requested: $SYNAPSE_WORKER_TYPES"
