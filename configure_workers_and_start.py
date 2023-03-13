@@ -48,6 +48,7 @@
 import codecs
 import os
 import platform
+import re
 import shutil
 import socket
 import subprocess
@@ -448,139 +449,6 @@ class Worker:
                 self.worker_extra_conf = worker_extra_conf
 
 
-class NginxConfig:
-    """
-    This represents collected data to plug into the various nginx configuration points.
-
-    Attributes:
-        locations: A dict of locations and the name of the upstream_host responsible for
-            it. This will be used in the final nginx file. e.g.
-            '/_matrix/federation/.*/send':'bob-federation_inbound.federation'
-        locations_to_port_set: A dict of locations and a set of collected ports.
-            e.g. {'/endpoint1': {1234, 1235, ...}}
-        port_to_upstream_name: A map of port to the worker's base name related to it.
-            e.g. {1234: "worker_base_name"}
-        port_to_listener_type: A map of port to worker's listener_type. Functionally,
-            not important, but used to append to the upstream name so visually can
-            identify what type of listener it's pointing to.
-            e.g. { 1234: "client" }
-        upstreams_to_ports: A map of upstream host to a Set of ports. This is used in
-            the final nginx file.
-        upstreams_roles: Set of worker_type roles. Used to calculate load-balancing.
-
-    """
-
-    locations: Dict[str, str]
-    locations_to_port_set: Dict[str, Set[int]]
-    port_to_upstream_name: Dict[int, str]
-    port_to_listener_type: Dict[int, str]
-    upstreams_to_ports: Dict[str, Set[int]]
-    upstreams_roles: Dict[str, Set[str]]
-
-    def __init__(self) -> None:
-        self.locations = {}
-        self.locations_to_port_set = {}
-        self.port_to_upstream_name = {}
-        self.port_to_listener_type = {}
-        self.upstreams_to_ports = {}
-        self.upstreams_roles = {}
-
-    def add_upstreams(
-        self,
-        host: str,
-        worker_roles: Set[str],
-        ports: Set[int],
-    ) -> None:
-        """
-        Add a new upstream host to NginxConfig.upstreams_to_ports and
-            NginxConfig.upstreams_roles when given the worker roles as a set and a
-            set of ports to assign to it.
-
-        Args:
-            host: The name to use for the load-balancing upstream nginx block.
-            worker_roles: A Set of roles this upstream block can be responsible for.
-            ports: A Set containing a single port or multiple ports to assign.
-        Returns: None
-        """
-        debug(
-            f"Making new upstream: {host}\n - roles: {worker_roles}\n - ports: {ports}"
-        )
-        # Initialize this (possible new) host entries
-        self.upstreams_to_ports.setdefault(host, set()).update(ports)
-        self.upstreams_roles.setdefault(host, set()).update(worker_roles)
-
-    def create_final_upstreams_and_locations(self):
-        """
-        Use to create upstream data to be used in the written out Nginx config file.
-
-        """
-        # Primarily used to create the necessary data for an upstream block to be
-        # written into the nginx config file. For such, the upstream needs a name and
-        # port(s). Additionally, some endpoints are more efficiently used if hashed
-        # to consistently point to the same worker(or port, in this context). Finally,
-        # will create the nginx.locations map used for the final nginx config file that
-        # associates the correct upstream name to a given endpoint.
-
-        # The upstream name created will be in the format of "name.listener_type" and
-        # will not have "http://" added to it.
-
-        # Note that this does create upstreams even with a single port. Nginx says
-        # that doing so, and adding in correct 'zone' and 'keepalive' declarations,
-        # allows for better performance because of shared_mem usage for state
-        # information on upstreams and by recycling open connections instead of
-        # constantly creating and closing them. The connection pool is naturally
-        # quick large, but a given closed connection holds the file descriptors for 2
-        # minutes before adding it back to the pool.
-
-        # Uses data from
-        #   locations_to_port_set to find out what ports can serve a given endpoint
-        #   port_to_upstream_name to get the hostname used by this port, typically a
-        #       worker's base name is used for convenient grouping. Multiple
-        #       non-matching hostnames will be concatenated with a '-' when creating
-        #       this upstream name.
-        #   port_to_listener_type to get the information on what kind of listener
-        #       type(like 'client' or 'federation') this port is associated with.
-        #       Functionally, this allows a given upstream to separate client requests
-        #       from federation requests(and etc) since each listener type has it's own
-        #       port. Also has a visual use for a person inspecting the config file.
-        #   upstreams_roles to add a worker's roles for use in the specializing
-        #       load-balancing by client IP or other hashing method.
-
-        for endpoint_pattern, port_set in self.locations_to_port_set.items():
-            # Reset these for each run
-            new_nginx_upstream_set: Set[str] = set()
-            new_nginx_upstream_listener_set: Set[str] = set()
-            new_nginx_upstream_roles: Set[str] = set()
-
-            # Check each port number. For a single-port upstream this only iterates once
-            for each_port in port_set:
-                # Get the worker.base_name for the upstream name
-                new_nginx_upstream_set.add(self.port_to_upstream_name[each_port])
-                # Get the listener_type, as it's appended to the upstream name
-                new_nginx_upstream_listener_set.add(
-                    self.port_to_listener_type[each_port]
-                )
-                # Get the workers roles for specialized load-balancing
-                new_nginx_upstream_roles.update(
-                    self.upstreams_roles[self.port_to_upstream_name[each_port]]
-                )
-
-            # This will be the name of the upstream
-            new_nginx_upstream = f"{'-'.join(sorted(new_nginx_upstream_set))}"
-            new_nginx_upstream += (
-                f".{'-'.join(sorted(new_nginx_upstream_listener_set))}"
-            )
-
-            # Check this upstream exists, if not then make it
-            if new_nginx_upstream not in self.upstreams_to_ports:
-                self.add_upstreams(
-                    new_nginx_upstream, new_nginx_upstream_roles, port_set
-                )
-
-            # Finally, update nginx.locations with new upstream
-            self.locations[endpoint_pattern] = new_nginx_upstream
-
-
 class Workers:
     """
     This is a grouping of Worker, containing all the workers requested.
@@ -623,22 +491,66 @@ class Workers:
         self.worker_type_fine_grain_counter = defaultdict(int)
         self.current_port_counter = port_starting_num
 
-    def add_worker(self, name: str, requested_worker_type: str) -> str:
+    def add_worker(self, requested_worker_type: str) -> str:
         """
         Make a worker, check its name is sane, and collect its configuration bits for
                 later.
 
         Args:
-            name: the requested name, will be it's base name
             requested_worker_type: the string combination of roles this worker needs to
-                fulfill.
+                fulfill(and possibly a requested name).
         Returns: string of the new worker's full name
         """
+        # Peel off any name designated before a '=' to use later.
+        worker_base_name = ""
+        if "=" in requested_worker_type:
+            # Split on "=", remove extra whitespace from ends then make list
+            worker_type_split = split_and_strip_string(requested_worker_type, "=")
+            if len(worker_type_split) > 2:
+                error(
+                    "To many worker names requested for a single worker, or to many "
+                    f"'='. Please fix: '{requested_worker_type}'"
+                )
+
+            # Assign the name
+            worker_base_name = worker_type_split[0]
+
+            if not re.match(r"^[a-zA-Z0-9_+-]*[a-zA-Z_+-]$", worker_base_name):
+                # Apply a fairly narrow regex to the worker names. Some characters
+                # aren't safe for use in file paths or nginx configurations.
+                # Don't allow to end with a number because we'll add a number
+                # ourselves in a moment.
+                error(
+                    "Invalid worker name; please choose a name consisting of "
+                    "alphanumeric letters, _ + -, but not ending with a digit: "
+                    f"{worker_base_name!r}"
+                )
+
+            # Reassign the worker_type string with no name on it.
+            requested_worker_type = worker_type_split[1]
+
+        # If there was a requested name, it's been removed now
+        worker_type_set: Set[str] = set(split_and_strip_string(
+            requested_worker_type, "+"
+        ))
+
+        if worker_base_name:
+            # It'll be useful to have this in the log in case it's a complex of many
+            # workers merged together. Note for Complement: it would only be seen in the
+            # logs for blueprint construction(which are not collected).
+            log(
+                f"Worker name request found: '{worker_base_name}', for: "
+                f"'{requested_worker_type}'"
+            )
+        else:
+            # The worker name will be the worker_type as a sorted and joined string
+            worker_base_name = "+".join(sorted(worker_type_set))
+
         # Check worker base name isn't in use by something else already. Will error and
         # stop if it is.
-        name_to_check = self.worker_type_to_name_map.get(name)
+        name_to_check = self.worker_type_to_name_map.get(worker_base_name)
         if (name_to_check is None) or (name_to_check == requested_worker_type):
-            new_worker = Worker(name, requested_worker_type)
+            new_worker = Worker(worker_base_name, requested_worker_type)
 
             # Check if there is to many of a worker there can only be one of.
             # Will error and stop if it is a problem, e.g. 'background_worker'.
@@ -656,13 +568,15 @@ class Workers:
 
             # Add to the name:type map, if it already exists this will no-op and that's
             # what we want.
-            self.worker_type_to_name_map.setdefault(name, requested_worker_type)
+            self.worker_type_to_name_map.setdefault(
+                worker_base_name, requested_worker_type
+            )
 
             # Now add or increment it on the global counter
             self.worker_type_counter[requested_worker_type] += 1
 
             # Save the count as an index
-            new_worker.index = int(self.worker_type_counter[requested_worker_type])
+            new_worker.index = self.worker_type_counter[requested_worker_type]
             # Name workers by their type or requested name concatenated with an
             # incrementing number. e.g. event_creator+event_persister1,
             # federation_reader1 or bob1
@@ -674,9 +588,9 @@ class Workers:
             return str(new_worker.name)
         else:
             error(
-                f"Can not use '{name}' with requested worker_type: "
+                f"Can not use '{worker_base_name}' with requested worker_type: "
                 f"'{requested_worker_type}', it is in use by: "
-                f"'{self.worker_type_to_name_map[name]}'"
+                f"'{name_to_check}'"
             )
 
     def update_local_shared_config(self, worker_name: str) -> None:
@@ -713,6 +627,161 @@ class Workers:
         ] = self.current_port_counter
         # Increment the counter
         self.current_port_counter += 1
+
+
+class NginxConfig:
+    """
+    This represents collected data to plug into the various nginx configuration points.
+
+    Attributes:
+        locations: A dict of locations and the name of the upstream_host responsible for
+            it. This will be used in the final nginx file. e.g.
+            '/_matrix/federation/.*/send':'bob-federation_inbound.federation'
+        upstreams_to_ports: A map of upstream host to a Set of ports. This is used in
+            the final nginx file.
+        upstreams_roles: Set of worker_type roles. Used to calculate load-balancing.
+
+    """
+
+    locations: Dict[str, str]
+    upstreams_to_ports: Dict[str, Set[int]]
+    upstreams_roles: Dict[str, Set[str]]
+
+    def __init__(self) -> None:
+        self.locations = {}
+        self.upstreams_to_ports = {}
+        self.upstreams_roles = {}
+
+    def add_upstreams(
+        self,
+        host: str,
+        worker_roles: Set[str],
+        ports: Set[int],
+    ) -> None:
+        """
+        Add a new upstream host to NginxConfig.upstreams_to_ports and
+            NginxConfig.upstreams_roles when given the worker roles as a set and a
+            set of ports to assign to it.
+
+        Args:
+            host: The name to use for the load-balancing upstream nginx block.
+            worker_roles: A Set of roles this upstream block can be responsible for.
+            ports: A Set containing a single port or multiple ports to assign.
+        Returns: None
+        """
+        debug(
+            f"Making new upstream: {host}\n - roles: {worker_roles}\n - ports: {ports}"
+        )
+        # Initialize this (possible new) host entries
+        self.upstreams_to_ports.setdefault(host, set()).update(ports)
+        self.upstreams_roles.setdefault(host, set()).update(worker_roles)
+
+    def create_upstreams_and_locations(self, workers: Workers):
+        """
+        Use to create upstream data and endpoint locations for the written out Nginx
+            config file. Check class attributes for locations and upstreams_to_ports
+        """
+        # Primarily used to create the necessary data for an upstream block to be
+        # written into the nginx config file. For such, the upstream needs a name and
+        # port(s). Additionally, some endpoints are more efficiently used if hashed
+        # to consistently point to the same worker(or port, in this context). Finally,
+        # will create the nginx.locations map used for the final nginx config file that
+        # associates the correct upstream name to a given endpoint.
+
+        # The upstream name created will be in the format of "name.listener_type" and
+        # will not have "http://" added to it.
+
+        # Note that this does create upstreams even with a single port. Nginx says
+        # that doing so, and adding in correct 'zone' and 'keepalive' declarations,
+        # allows for better performance because of shared_mem usage for state
+        # information on upstreams and by recycling open connections instead of
+        # constantly creating and closing them. The connection pool is naturally
+        # quick large, but a given closed connection holds the file descriptors for 2
+        # minutes before adding it back to the pool.
+
+        # Uses data from
+        #   locations_to_port_set to find out what ports can serve a given endpoint
+        #   port_to_upstream_name to get the hostname used by this port, typically a
+        #       worker's base name is used for convenient grouping. Multiple
+        #       non-matching hostnames will be concatenated with a '-' when creating
+        #       this upstream name.
+        #   port_to_listener_type to get the information on what kind of listener
+        #       type(like 'client' or 'federation') this port is associated with.
+        #       Functionally, this allows a given upstream to separate client requests
+        #       from federation requests(and etc) since each listener type has it's own
+        #       port. Also has a visual use for a person inspecting the config file.
+        #   upstreams_roles to add a worker's roles for use in the specializing
+        #       load-balancing by client IP or other hashing method.
+
+        # locations_to_port_set: A dict of locations and a set of collected ports.
+        #    e.g. {'/endpoint1': {1234, 1235, ...}}
+        locations_to_port_set: Dict[str, Set[int]] = {}
+
+        # port_to_upstream_name: A map of port to the worker's base name related to it.
+        #    e.g. {1234: "worker_base_name"}
+        port_to_upstream_name: Dict[int, str] = {}
+
+        # port_to_listener_type: A map of port to worker's listener_type. Functionally,
+        #    not important, but used to append to the upstream name so visually can
+        #    identify what type of listener it's pointing to.
+        #    e.g. { 1234: "client" }
+        port_to_listener_type: Dict[int, str] = {}
+
+        # Add nginx location blocks for this worker's endpoints (if any are defined)
+        # There are now the capability of having multiple types of listeners.
+        # Inappropriate types of listeners were already filtered out.
+        for worker in workers.worker.values():
+            for listener_type, patterns in worker.endpoint_patterns.items():
+                for pattern in patterns:
+                    # Collect port numbers for this endpoint pattern
+                    locations_to_port_set.setdefault(pattern, set()).add(
+                        worker.listener_port_map[listener_type]
+                    )
+                # Set lookup maps to be used for combining upstreams in a moment.
+                # Need the worker's base name
+                port_to_upstream_name.setdefault(
+                    worker.listener_port_map[listener_type], worker.base_name
+                )
+                # The listener type
+                port_to_listener_type.setdefault(
+                    worker.listener_port_map[listener_type], listener_type
+                )
+                # And the list of roles this(possibly combination) worker can fill
+                self.upstreams_roles.setdefault(worker.base_name, set()).update(
+                    worker.types_list
+                )
+
+        for endpoint_pattern, port_set in locations_to_port_set.items():
+            # Reset these for each run
+            new_nginx_upstream_set: Set[str] = set()
+            new_nginx_upstream_listener_set: Set[str] = set()
+            new_nginx_upstream_roles: Set[str] = set()
+
+            # Check each port number. For a single-port upstream this only iterates once
+            for each_port in port_set:
+                # Get the worker.base_name for the upstream name
+                new_nginx_upstream_set.add(port_to_upstream_name[each_port])
+                # Get the listener_type, as it's appended to the upstream name
+                new_nginx_upstream_listener_set.add(port_to_listener_type[each_port])
+                # Get the workers roles for specialized load-balancing
+                new_nginx_upstream_roles.update(
+                    self.upstreams_roles[port_to_upstream_name[each_port]]
+                )
+
+            # This will be the name of the upstream
+            new_nginx_upstream = f"{'-'.join(sorted(new_nginx_upstream_set))}"
+            new_nginx_upstream += (
+                f".{'-'.join(sorted(new_nginx_upstream_listener_set))}"
+            )
+
+            # Check this upstream exists, if not then make it
+            if new_nginx_upstream not in self.upstreams_to_ports:
+                self.add_upstreams(
+                    new_nginx_upstream, new_nginx_upstream_roles, port_set
+                )
+
+            # Finally, update nginx.locations with new upstream
+            self.locations[endpoint_pattern] = new_nginx_upstream
 
 
 # Utility functions
@@ -1064,58 +1133,12 @@ def generate_worker_files(
 
     # For each worker type specified by the user, create config values
     for worker_type in worker_types:
-        # Peel off any name designated before a '=' to use later.
-        requested_worker_name = ""
-        if "=" in worker_type:
-            # Split on "=", remove extra whitespace from ends then make list
-            worker_type_split = split_and_strip_string(worker_type, "=")
-            if len(worker_type_split) > 2:
-                error(
-                    "To many worker names requested for a single worker, or to many "
-                    f"'='. Please fix: '{worker_type}'"
-                )
-            # if there was no name given, this will still be an empty string
-            requested_worker_name = worker_type_split[0]
-            # Uncommon mistake that will cause problems. Name string containing spaces.
-            if len(requested_worker_name.split(" ")) > 1:
-                error(
-                    "Requesting a worker name containing a space is not allowed, "
-                    "as it would raise a FileNotFoundError. Please use an "
-                    "underscore instead."
-                )
-            # Reassign the worker_type string with no name on it.
-            worker_type = worker_type_split[1]
-
-        worker_base_name: str
-        if requested_worker_name:
-            worker_base_name = requested_worker_name
-            # It'll be useful to have this in the log in case it's a complex of many
-            # workers merged together. Note for Complement: it would only be seen in the
-            # logs for blueprint construction(which are not collected).
-            log(
-                f"Worker name request found: '{worker_base_name}', for: '{worker_type}'"
-            )
-
-        else:
-            # The worker name will be the worker_type, however if spaces exist
-            # between concatenated worker_types and the "+" because of readability,
-            # it will error on startup. Recombine worker_types without spaces and log.
-            if " " in worker_type:
-                # Found a space in the worker_type string. Split it, strip it, and
-                # rejoin it. Then test.
-                worker_base_name = "+".join(split_and_strip_string(worker_type, " "))
-                if worker_base_name != worker_type:
-                    log(
-                        "Default worker name would have contained spaces, which is not "
-                        f"allowed: '{worker_type}'. Reformed name to not contain "
-                        f"spaces: '{worker_base_name}'"
-                    )
-            else:
-                # No spaces, good. Use it.
-                worker_base_name = worker_type
-
-        # The name is parsed out, make the worker.
-        new_worker_name = workers.add_worker(worker_base_name, worker_type)
+        # worker_type is a string that can be:
+        # 1. a single worker type
+        # 2. a combination of worker types, concatenated with a '+'
+        # 3. possibly prepended with a name and a '='
+        # Make the worker from that string.
+        new_worker_name = workers.add_worker(worker_type)
 
         # Take a reference to update things without a ridiculous amount of extra lines.
         worker = workers.worker[new_worker_name]
@@ -1199,32 +1222,8 @@ def generate_worker_files(
             worker_log_config_filepath=log_config_filepath,
         )
 
-        # TODO: factor this section out into a separate function
-        # Add nginx location blocks for this worker's endpoints (if any are defined)
-        # There are now the capability of having multiple types of listeners.
-        # Inappropriate types of listeners were already filtered out.
-        for listener_type, patterns in worker.endpoint_patterns.items():
-            for pattern in patterns:
-                # Collect port numbers for this endpoint pattern for later combination
-                nginx.locations_to_port_set.setdefault(pattern, set()).add(
-                    worker.listener_port_map[listener_type]
-                )
-            # Set lookup maps to be used for combining upstreams in a moment.
-            # Need the worker's base name
-            nginx.port_to_upstream_name.setdefault(
-                worker.listener_port_map[listener_type], worker.base_name
-            )
-            # The listener type
-            nginx.port_to_listener_type.setdefault(
-                worker.listener_port_map[listener_type], listener_type
-            )
-            # And the list of roles this(possibly combination) worker can fill
-            nginx.upstreams_roles.setdefault(worker.base_name, set()).update(
-                worker.types_list
-            )
-
     # Should have all the data needed to create nginx configuration now
-    nginx.create_final_upstreams_and_locations()
+    nginx.create_upstreams_and_locations(workers)
 
     # There are now two dicts to pull data from to construct the nginx config files.
     # nginx.locations has all the endpoints and the upstream they point at
@@ -1327,7 +1326,6 @@ def generate_worker_files(
 
     debug("nginx.locations: " + json.dumps(nginx.locations, indent=4))
     debug("nginx.upstreams_to_ports: " + str(nginx.upstreams_to_ports))
-    # debug("upstreams_to_use: " + str(upstreams_to_use))
     debug("nginx_upstream_config: " + str(nginx_upstream_config))
     debug("global shared_config: " + json.dumps(shared_config, indent=4))
     workers_in_use = len(worker_types) > 0

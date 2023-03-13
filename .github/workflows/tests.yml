@@ -36,6 +36,10 @@ jobs:
           - arrangement: workers
             database: Postgres
 
+          - arrangement: workers
+            database: Postgres
+            worker_types: 'event_persister:2, stream_writers=account_data+presence+receipts+to_device+typing, singles=background_worker+user_dir+frontend_proxy+media_repository+appservice, senders=pusher+federation_sender, readers=federation_reader+client_reader+synchrotron+federation_inbound+event_creator:2'
+
           - arrangement: monolith
             database: SQLite
             reactor: asyncio
@@ -47,6 +51,12 @@ jobs:
           - arrangement: workers
             database: Postgres
             reactor: asyncio
+
+          - arrangement: workers
+            database: Postgres
+            reactor: asyncio
+            worker_types: 'event_persister:2, stream_writers=account_data+presence+receipts+to_device+typing, singles=background_worker+user_dir+frontend_proxy+media_repository+appservice, senders=pusher+federation_sender, readers=federation_reader+client_reader+synchrotron+federation_inbound+event_creator:2'
+
 
     steps:
       - name: Git checkout
@@ -68,6 +78,7 @@ jobs:
         env:
           POSTGRES: ${{ (matrix.database == 'Postgres') && 1 || '' }}
           WORKERS: ${{ (matrix.arrangement == 'workers') && 1 || '' }}
+          WORKER_TYPES: ${{ matrix.worker_types || '' }}
           # Take advantage of the fact that the validation for truthy doesn't actually exist here.
           ASYNCIO_REACTOR: ${{ matrix.reactor || '' }}
         run: |
