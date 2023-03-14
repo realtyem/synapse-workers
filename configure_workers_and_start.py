@@ -1000,7 +1000,7 @@ def generate_worker_files(
     # A keepalive multiplier, this gets multiplied by the number of server lines in a
     # given upstream. This value is a maximum number of idle connections to keepalive.
     # 1 is fine for testing, 32 is recommended for production.
-    keepalive_multiplier = 32
+    keepalive_multiplier = 1
 
     # The main object where our workers configuration will live.
     workers = Workers(worker_port)
