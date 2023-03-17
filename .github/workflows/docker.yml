@@ -7,6 +7,12 @@
 # the image, or in the case of nightly just building it every night, even weekends(sometimes things get committed
 # then too).
 
+# Added 2023.03.16: Push to GHCR.io registry as well. According to:
+# https://docs.github.com/en/actions/publishing-packages/publishing-docker-images#publishing-images-to-docker-hub-and-github-packages
+# it is as simple as logging into both dockerhub and ghcr.io and then updating the tags to reference both places. It's unclear
+# if the image to go to dockerhub should be prefixed with 'docker.io' or not. Write permissions active for 'packages' is an
+# important detail.
+
 # Might add a pull request/experimental image build later on.
 
 name: Build docker images
@@ -34,6 +40,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   build-unified:
@@ -76,6 +83,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Log in to GHCR.io
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build and Push Latest Image
         if: ${{ steps.changes.outputs.release == 'true' || github.event_name == 'workflow_dispatch' }}
         uses: docker/build-push-action@v4
@@ -86,6 +100,8 @@ jobs:
           tags: |
             realtyem/synapse:latest
             realtyem/synapse:${{ steps.get_version.outputs.synapse_latest_version }}
+            ghcr.io/realtyem/synapse:latest
+            ghcr.io/realtyem/synapse:${{ steps.get_version.outputs.synapse_latest_version }}
           build-args: |
             SYNAPSE_VERSION=${{ steps.get_version.outputs.synapse_latest_version }}
           file: "Dockerfile-unified"
@@ -102,6 +118,7 @@ jobs:
           labels: "gitsha1=${{ github.sha }}"
           tags: |
             realtyem/synapse:${{ steps.get_version.outputs.synapse_prerelease_version }}
+            ghcr.io/realtyem/synapse:${{ steps.get_version.outputs.synapse_prerelease_version }}
           build-args: |
             SYNAPSE_VERSION=${{ steps.get_version.outputs.synapse_prerelease_version }}
           file: "Dockerfile-unified"
@@ -115,7 +132,9 @@ jobs:
         with:
           push: true
           context: .
-          tags: "realtyem/synapse:nightly"
+          tags: |
+            realtyem/synapse:nightly
+            ghcr.io/realtyem/synapse:nightly
           build-args: |
             SYNAPSE_VERSION=develop
           file: "Dockerfile-unified"
