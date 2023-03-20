@@ -62,7 +62,8 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 
 DEBUG = True
-MAIN_PROCESS_HTTP_LISTENER_PORT = 8080
+MAIN_PROCESS_HTTP_LISTENER_PORT = 8008
+MAIN_PROCESS_NGINX_PORT = 8080
 MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT = 8060
 enable_compressor = False
 enable_coturn = False
@@ -975,11 +976,70 @@ def generate_worker_files(
             "resources": [{"names": ["replication"]}],
         }
     ]
+
+    # These get set as this for the default, in case there isn't actually a main
+    # homeserver.yaml to grab original values from.
+    original_client_listener_port = MAIN_PROCESS_HTTP_LISTENER_PORT
+    original_federation_listener_port = MAIN_PROCESS_HTTP_LISTENER_PORT
+    import json
+
+    # The original_listeners are a list with each entry being a dict containing, at
+    # least, a 'type' and a 'port' and another list(resources) with potentially more
+    # than one dict again containing, at least, one or more 'names' as a list.
     with open(config_path) as file_stream:
         original_config = yaml.safe_load(file_stream)
         original_listeners = original_config.get("listeners")
         if original_listeners:
-            listeners += original_listeners
+            debug("original_listeners: " + json.dumps(original_listeners, indent=4))
+            debug(f"original_listeners length: {len(original_listeners)}")
+            for level_one in original_listeners:
+                if "http" in level_one["type"]:
+                    for resource in level_one["resources"]:
+                        if "client" in resource["names"]:
+                            original_client_listener_port = level_one["port"]
+                            debug("client port found: " + str(original_client_listener_port))
+                        if "federation" in resource["names"]:
+                            original_federation_listener_port = level_one["port"]
+                            debug("federation port found: " + str(original_federation_listener_port))
+
+        # Both of these listeners should have been declared in the original
+        # homeserver.yaml file. Make a new listeners block with appropriate
+        # characteristics. The two ports that were extracted(if found) will be
+        # placed into the nginx config for synapse as 'listen' statements.
+        new_main_listeners = [
+            {
+                "port": MAIN_PROCESS_NGINX_PORT,
+                "bind_addresses": ["0.0.0.0"],
+                "type": "http",
+                "resources": [
+                    {
+                        "names": ["client"],
+                        "compress": True
+                    },
+                    {
+                        "names": ["federation"],
+                        "compress": True
+                     }
+                ],
+                "tls": False,
+                "x_forwarded": True,
+            }
+        ]
+
+        listeners += new_main_listeners
+
+    # If metrics is enabled, and the listener block got overwritten, will need to inject
+    # that back in.
+    if enable_metrics:
+        metric_listener = [
+            {
+                "port": MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT,
+                "bind_address": "0.0.0.0",
+                "type": "metrics",
+                "resources": [{"compress": True}],
+            }
+        ]
+        listeners += metric_listener
 
     # Only activate the manhole if the environment says to do so. SYNAPSE_MANHOLE_MASTER
     if enable_manhole_master:
@@ -994,6 +1054,7 @@ def generate_worker_files(
         ]
         listeners += manhole_listener
 
+    debug("new listener block: " + json.dumps(listeners, indent=4))
     # Start worker ports from this arbitrary port
     worker_port = 18009
 
@@ -1348,6 +1409,9 @@ def generate_worker_files(
         upstream_directives=nginx_upstream_config,
         tls_cert_path=os.environ.get("SYNAPSE_TLS_CERT"),
         tls_key_path=os.environ.get("SYNAPSE_TLS_KEY"),
+        original_federation_listener_port=original_federation_listener_port,
+        original_client_listener_port=original_client_listener_port,
+        main_proxy_pass_port=MAIN_PROCESS_NGINX_PORT,
     )
 
     # Prometheus config, if enabled
