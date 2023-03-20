@@ -930,10 +930,12 @@ def generate_base_homeserver_config() -> None:
     """
     # start.py already does this for us, so just call that.
     # note that this script is copied in from the official, monolith dockerfile
-    os.environ["SYNAPSE_HTTP_PORT"] = str(MAIN_PROCESS_HTTP_LISTENER_PORT)
-    os.environ["SYNAPSE_METRICS_HTTP_PORT"] = str(
-        MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT
-    )
+    if "SYNAPSE_HTTP_PORT" not in os.environ:
+        os.environ["SYNAPSE_HTTP_PORT"] = str(MAIN_PROCESS_HTTP_LISTENER_PORT)
+    if "SYNAPSE_METRICS_HTTP_PORT" not in os.environ:
+        os.environ["SYNAPSE_METRICS_HTTP_PORT"] = str(
+            MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT
+        )
     subprocess.run(["/usr/local/bin/python", "/start.py", "migrate_config"], check=True)
 
 
