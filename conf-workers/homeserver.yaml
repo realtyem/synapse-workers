@@ -24,21 +24,13 @@ serve_server_wellknown: {{ SYNAPSE_SERVE_SERVER_WELLKNOWN }}
 
 ## Ports ##
 listeners:
-{% if not SYNAPSE_NO_TLS %}
-  - port: 8448
-    bind_addresses: ['0.0.0.0']
-    type: http
-    tls: true
-    x_forwarded: false
-    resources:
-      - names: [client]
-        compress: true
-      - names: [federation]  # Federation APIs
-        compress: true
-{% endif %}
-# This gets pulled in by the configure_workers_and_start script then added to and then
-# written to the shared.yaml to use the reverse proxy. It will be set to 8080, as the
-# reverse proxy will intercept the request and proxy it to Synapse, even as a monolith.
+# This gets pulled in by the configure_workers_and_start script where a replication
+# listener is added(if needed) and then written to the shared.yaml to use the internal
+# reverse proxy. It will be set to 8080, as the internal reverse proxy will intercept
+# the request and proxy it to Synapse, even as a monolith. Federation traffic(which is
+# traditionally port 8448) will be sent to this same port, which is why there is a
+# 'federation' resource attached. If externally your docker is expecting client traffic
+# on 8008 and federation traffic on 8448, then you don't have to do a thing.
   - port: {{ SYNAPSE_HTTP_PORT or 8008 }}
     tls: false
     bind_addresses: ['0.0.0.0']
@@ -58,7 +50,8 @@ listeners:
 {% endif %}
 {% if not SYNAPSE_NO_TLS %}
 ## TLS ##
-# This is kept in for backward compatibility with the CI testing suite
+# This is kept in for backward compatibility with the CI testing suite. You should have
+# an external reverse proxy(like swag) handling this for you.
 tls_certificate_path: "/data/{{ SYNAPSE_SERVER_NAME }}.tls.crt"
 tls_private_key_path: "/data/{{ SYNAPSE_SERVER_NAME }}.tls.key"
 {% endif %}
@@ -74,6 +67,7 @@ database:
     port: "{{ POSTGRES_PORT or "5432" }}"
     cp_min: 5
     cp_max: 10
+  synchronous_commit: "{{ SYNAPSE_POSTGRES_ENABLE_SYNCHRONOUS_COMMIT or true}}"
 {% else %}
 database:
   name: "sqlite3"
