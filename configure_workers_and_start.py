@@ -63,7 +63,9 @@ from jinja2 import Environment, FileSystemLoader
 
 DEBUG = True
 MAIN_PROCESS_HTTP_LISTENER_PORT = 8008
-MAIN_PROCESS_NGINX_PORT = 8080
+MAIN_PROCESS_HTTP_FED_LISTENER_PORT = 8448
+MAIN_PROCESS_NEW_CLIENT_PORT = 8080
+MAIN_PROCESS_NEW_FEDERATION_PORT = 8081
 MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT = 8060
 enable_compressor = False
 enable_coturn = False
@@ -1006,27 +1008,59 @@ def generate_worker_files(
 
         # Both of these listeners should have been declared in the original
         # homeserver.yaml file. Make a new listeners block with appropriate
-        # characteristics. The two ports that were extracted(if found) will be
-        # placed into the nginx config for synapse as 'listen' statements.
-        new_main_listeners = [
-            {
-                "port": MAIN_PROCESS_NGINX_PORT,
-                "bind_addresses": ["0.0.0.0"],
-                "type": "http",
-                "resources": [
-                    {
-                        "names": ["client"],
-                        "compress": True
-                    },
-                    {
-                        "names": ["federation"],
-                        "compress": True
-                     }
-                ],
-                "tls": False,
-                "x_forwarded": True,
-            }
-        ]
+        # characteristics. The port(or ports) that were extracted(if found) will be
+        # placed into the nginx config for synapse as 'listen' statements. At this time,
+        # these port numbers should be the same, as that is how most guides have them
+        # written.
+        if original_client_listener_port == original_federation_listener_port:
+            new_main_listeners = [
+                {
+                    "port": MAIN_PROCESS_NEW_CLIENT_PORT,
+                    "bind_addresses": ["0.0.0.0"],
+                    "type": "http",
+                    "resources": [
+                        {
+                            "names": ["client", "federation"],
+                            "compress": True
+                        }
+                    ],
+                    "tls": False,
+                    "x_forwarded": True,
+                }
+            ]
+        else:
+            # This was put in as an experimental option to have separated listeners,
+            # instead of the default single listener with all the externally important
+            # resources attached. It's not completely wired up yet. When finished,
+            # declaring SYNAPSE_HTTP_FED_PORT will make it work.
+            new_main_listeners = [
+                {
+                    "port": MAIN_PROCESS_NEW_CLIENT_PORT,
+                    "bind_addresses": ["0.0.0.0"],
+                    "type": "http",
+                    "resources": [
+                        {
+                            "names": ["client"],
+                            "compress": True
+                        }
+                    ],
+                    "tls": False,
+                    "x_forwarded": True,
+                },
+                {
+                    "port": MAIN_PROCESS_NEW_FEDERATION_PORT,
+                    "bind_addresses": ["0.0.0.0"],
+                    "type": "http",
+                    "resources": [
+                        {
+                            "names": ["federation"],
+                            "compress": True
+                        }
+                    ],
+                    "tls": False,
+                    "x_forwarded": True,
+                },
+            ]
 
         listeners += new_main_listeners
 
@@ -1413,7 +1447,9 @@ def generate_worker_files(
         tls_key_path=os.environ.get("SYNAPSE_TLS_KEY"),
         original_federation_listener_port=original_federation_listener_port,
         original_client_listener_port=original_client_listener_port,
-        main_proxy_pass_port=MAIN_PROCESS_NGINX_PORT,
+        main_proxy_pass_cli_port=MAIN_PROCESS_NEW_CLIENT_PORT,
+        # Part of the SYNAPSE_HTTP_FED_PORT experiment. Empty is ok here.
+        main_proxy_pass_fed_port=MAIN_PROCESS_NEW_FEDERATION_PORT,
     )
 
     # Prometheus config, if enabled

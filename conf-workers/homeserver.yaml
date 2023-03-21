@@ -39,6 +39,15 @@ listeners:
     resources:
       - names: [client]
         compress: true
+{% if SYNAPSE_HTTP_FED_PORT %}
+{# Note: this conditional section is experimental and should probably not be used yet. #}
+  - port: {{ SYNAPSE_HTTP_FED_PORT }}
+    tls: false
+    bind_addresses: ['0.0.0.0']
+    type: http
+    x_forwarded: true
+    resources:
+{% endif %}
       - names: [federation]
         compress: true
 {% if SYNAPSE_METRICS == "True" %}
