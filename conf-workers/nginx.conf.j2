@@ -4,20 +4,30 @@
 
 log_format backend '[$time_local] - $proxy_add_x_forwarded_for - URT:$upstream_response_time request_time $request_time $status $upstream_addr: $request';
 
+upstream main_synapse_process {
+    zone upstreams 64K;
+    server localhost:{{ main_proxy_pass_cli_port }};
+
+    keepalive 2;
+}
+
 {{ upstream_directives }}
 
 server {
-    # Listen on an unoccupied port number
-    # listen 8008;
-    listen {{ original_client_listener_port }};
-    # listen [::]:8008;
-    listen [::]:{{ original_client_listener_port }};
+    # Listen on an unoccupied port number, traditionally 8008. This is pulled in from
+    # your existing(or just created) homeserver.yaml file. This should allow you to not
+    # have to change any ports set up in your docker image
+    listen {{ original_client_listener_port or '8008' }};
+    listen [::]:{{ original_client_listener_port or '8008' }};
 
 {% if tls_cert_path is not none and tls_key_path is not none %}
+    # this allows for:
+    # 1. Piping in a federation port directly if you have TlS certs in place. This is
+    #    no longer recommended practice, as TLS validation in Synapse isn't the best.
+    #    You should be using an external reverse proxy for this, such as NPM or swag.
+    # 2. Backwards compatibility with Complement, which sets up TLS certs for tests
     listen 8448 ssl;
     listen [::]:8448 ssl;
-    # listen {{ original_federation_listener_port }};
-    # listen [::]:{{ original_federation_listener_port }};
 
     ssl_certificate {{ tls_cert_path }};
     ssl_certificate_key {{ tls_key_path }};
@@ -33,7 +43,9 @@ server {
 
     server_name localhost;
 
-    access_log /data/logs/synapse.log backend;
+    # access_log /data/logs/synapse.log backend;
+    access_log /dev/stdout backend;
+    error_log stderr warn;
 
     # Nginx by default only allows file uploads up to 1M in size
     # Increase client_max_body_size to match max_upload_size defined in homeserver.yaml
@@ -46,9 +58,12 @@ server {
 
 {{ worker_locations }}
 
-    # Send all other traffic to the main process
-    location ~* ^(\\/_matrix|\\/_synapse/client|\\/_synapse/admin) {
-        proxy_pass http://localhost:{{ main_proxy_pass_port }};
+    # Send all other traffic to the main process. This is safe, in the case of
+    # /_synapse/replication/, because it is actually on a different port.
+    location ~* ^(\\/_matrix|\\/_synapse) {
+        # This is proxied into the upstream defined above to take advantage of
+        # features inherent from HTTP 1.1
+        proxy_pass http://main_synapse_process;
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Host $host;
