@@ -66,6 +66,7 @@ MAIN_PROCESS_HTTP_LISTENER_PORT = 8008
 MAIN_PROCESS_HTTP_FED_LISTENER_PORT = 8448
 MAIN_PROCESS_NEW_CLIENT_PORT = 8080
 MAIN_PROCESS_NEW_FEDERATION_PORT = 8081
+MAIN_PROCESS_NEW_REPLICATION_PORT = 9093
 MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT = 8060
 enable_compressor = False
 enable_coturn = False
@@ -972,19 +973,12 @@ def generate_worker_files(
     # First read the original config file and extract the listeners block. Then we'll
     # add another listener for replication. Later we'll write out the result to the
     # shared config file.
-    listeners = [
-        {
-            "port": 9093,
-            "bind_address": "127.0.0.1",
-            "type": "http",
-            "resources": [{"names": ["replication"]}],
-        }
-    ]
 
     # These get set as this for the default, in case there isn't actually a main
     # homeserver.yaml to grab original values from.
     original_client_listener_port = MAIN_PROCESS_HTTP_LISTENER_PORT
     original_federation_listener_port = MAIN_PROCESS_HTTP_LISTENER_PORT
+    original_replication_listener_port = 0
     import json
 
     # The original_listeners are a list with each entry being a dict containing, at
@@ -1001,17 +995,48 @@ def generate_worker_files(
                     for resource in level_one["resources"]:
                         if "client" in resource["names"]:
                             original_client_listener_port = level_one["port"]
-                            debug("client port found: " + str(original_client_listener_port))
+                            debug(f"client port found: {original_client_listener_port}")
                         if "federation" in resource["names"]:
                             original_federation_listener_port = level_one["port"]
-                            debug("federation port found: " + str(original_federation_listener_port))
+                            debug(f"federation port found: {original_federation_listener_port}")
+                        if "replication" in resource["names"]:
+                            original_replication_listener_port = level_one["port"]
+                            debug(f"replication port found: {original_replication_listener_port}")
 
-        # Both of these listeners should have been declared in the original
+        # Any of these listeners could have been declared in the original
         # homeserver.yaml file. Make a new listeners block with appropriate
-        # characteristics. The port(or ports) that were extracted(if found) will be
-        # placed into the nginx config for synapse as 'listen' statements. At this time,
-        # these port numbers should be the same, as that is how most guides have them
-        # written.
+        # characteristics. The appropriate port(or ports) that were extracted(if
+        # found) will be placed into the nginx config for synapse as 'listen'
+        # statements. At this time, these port numbers should be the same, as that is
+        # how most guides have them written.
+
+        # Do the replication listener first. It gets make regardless, if it was found
+        # in the original homeserver.yaml file then let them know that it is being
+        # ignored since an external, unrestricted, replication endpoint is a security
+        # issue. This type of listener is only used between workers and the main
+        # process and serves no other purpose.
+        if original_replication_listener_port > 0:
+            log(
+                "The original 'replication' listener port "
+                f"'{original_replication_listener_port}' is being ignored. At this "
+                "time, that is a security issue. 'Replication' listeners are only used "
+                "by the main process when workers are present.")
+
+        listeners = [
+            {
+                "port": MAIN_PROCESS_NEW_REPLICATION_PORT,
+                "bind_address": "127.0.0.1",
+                "type": "http",
+                "resources": [{"names": ["replication"]}],
+            }
+        ]
+
+        # So, at this point we have the original 'client' and 'federation' ports.
+        # Ideally, they will be the same port as that is what most guides say to do for
+        # the docker image. Experimentally, allow a different port which at this time
+        # won't work correctly, but which has the side effect of disabling the receiving
+        # of federation traffic.
+        # Note: This is not recommended, and is not a performance enhancement.
         if original_client_listener_port == original_federation_listener_port:
             new_main_listeners = [
                 {
