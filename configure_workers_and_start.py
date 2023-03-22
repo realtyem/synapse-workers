@@ -62,6 +62,9 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 
 DEBUG = True
+if DEBUG is True:
+    import json
+
 MAIN_PROCESS_HTTP_LISTENER_PORT = 8008
 MAIN_PROCESS_HTTP_FED_LISTENER_PORT = 8448
 MAIN_PROCESS_NEW_CLIENT_PORT = 8080
@@ -925,6 +928,35 @@ def split_and_strip_string(given_string: str, split_char: str) -> List:
     return [x.strip() for x in given_string.split(split_char)]
 
 
+def extract_port_number_from_original_listeners(
+        original_listeners_list: List[Any],
+        listener_to_find: str
+) -> int:
+    """
+    Iterate and return the port number for a given listener from the original
+        configuration files.
+    Args:
+        original_listeners_list: The list after extraction from the existing config
+        listener_to_find: The name of the listener to track down. e.g. 'client'
+    Returns: int of the port number found, 0 if not found
+    """
+    # The original_listeners_list is a list with each entry being a dict containing, at
+    # least, a 'type' and a 'port' and another list(resources) with potentially more
+    # than one dict again containing, at least, one or more 'names' as a list.
+    port_to_return = 0
+    for list_entry in original_listeners_list:
+        if "http" in list_entry["type"]:
+            for resource in list_entry["resources"]:
+                if listener_to_find in resource["names"]:
+                    debug(f"{listener_to_find} port found: {list_entry['port']}")
+                    port_to_return = list_entry["port"]
+        if listener_to_find in list_entry["type"]:
+            debug(f"{listener_to_find} port found: {list_entry['port']}")
+            port_to_return = list_entry["port"]
+
+    return port_to_return
+
+
 def generate_base_homeserver_config() -> None:
     """Starts Synapse and generates a basic homeserver config, which will later be
     modified for worker support.
@@ -979,29 +1011,16 @@ def generate_worker_files(
     original_client_listener_port = MAIN_PROCESS_HTTP_LISTENER_PORT
     original_federation_listener_port = MAIN_PROCESS_HTTP_LISTENER_PORT
     original_replication_listener_port = 0
-    import json
 
-    # The original_listeners are a list with each entry being a dict containing, at
-    # least, a 'type' and a 'port' and another list(resources) with potentially more
-    # than one dict again containing, at least, one or more 'names' as a list.
     with open(config_path) as file_stream:
         original_config = yaml.safe_load(file_stream)
         original_listeners = original_config.get("listeners")
         if original_listeners:
             debug("original_listeners: " + json.dumps(original_listeners, indent=4))
             debug(f"original_listeners length: {len(original_listeners)}")
-            for level_one in original_listeners:
-                if "http" in level_one["type"]:
-                    for resource in level_one["resources"]:
-                        if "client" in resource["names"]:
-                            original_client_listener_port = level_one["port"]
-                            debug(f"client port found: {original_client_listener_port}")
-                        if "federation" in resource["names"]:
-                            original_federation_listener_port = level_one["port"]
-                            debug(f"federation port found: {original_federation_listener_port}")
-                        if "replication" in resource["names"]:
-                            original_replication_listener_port = level_one["port"]
-                            debug(f"replication port found: {original_replication_listener_port}")
+            original_client_listener_port = extract_port_number_from_original_listeners(original_listeners, "client")
+            original_federation_listener_port = extract_port_number_from_original_listeners(original_listeners, "federation")
+            original_replication_listener_port = extract_port_number_from_original_listeners(original_listeners, "replication")
 
         # Any of these listeners could have been declared in the original
         # homeserver.yaml file. Make a new listeners block with appropriate
@@ -1010,7 +1029,7 @@ def generate_worker_files(
         # statements. At this time, these port numbers should be the same, as that is
         # how most guides have them written.
 
-        # Do the replication listener first. It gets make regardless, if it was found
+        # Do the replication listener first. It gets made regardless, if it was found
         # in the original homeserver.yaml file then let them know that it is being
         # ignored since an external, unrestricted, replication endpoint is a security
         # issue. This type of listener is only used between workers and the main
@@ -1443,8 +1462,6 @@ def generate_worker_files(
             for reg_path in Path(appservice_registration_dir).iterdir()
             if reg_path.suffix.lower() in (".yaml", ".yml")
         ]
-
-    import json
 
     debug("nginx.locations: " + json.dumps(nginx.locations, indent=4))
     debug("nginx.upstreams_to_ports: " + str(nginx.upstreams_to_ports))
