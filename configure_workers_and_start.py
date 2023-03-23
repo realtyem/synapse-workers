@@ -1001,10 +1001,11 @@ def generate_worker_files(
     enable_manhole_master = getenv_bool("SYNAPSE_MANHOLE_MASTER", False)
     enable_manhole_workers = getenv_bool("SYNAPSE_MANHOLE_WORKERS", False)
     enable_metrics = getenv_bool("SYNAPSE_METRICS", False)
+    enable_internal_redis = False
 
-    # First read the original config file and extract the listeners block. Then we'll
-    # add another listener for replication. Later we'll write out the result to the
-    # shared config file.
+    # First read the original config file and extract the listeners block and a few
+    # other things. Then we'll add another listener for replication. Later we'll
+    # write out the result to the shared config file.
 
     # These get set as this for the default, in case there isn't actually a main
     # homeserver.yaml to grab original values from.
@@ -1107,6 +1108,15 @@ def generate_worker_files(
             ]
 
         listeners += new_main_listeners
+
+        # One of the things to check for is a redis installation declared in the main
+        # config file. Since we enable redis support for workers only, if they want to
+        # use their own external installation of it then accommodate.
+        original_redis = original_config.get("redis")
+        if original_redis:
+            # Although we can be extremely picky about this, probably just easier to
+            # use it as-is. As such, we do nothing here but log it.
+            log("External Redis installation found by declaration in homeserver.yaml")
 
     # If metrics is enabled, and the listener block got overwritten, will need to inject
     # that back in.
@@ -1467,7 +1477,14 @@ def generate_worker_files(
     debug("nginx.upstreams_to_ports: " + str(nginx.upstreams_to_ports))
     debug("nginx_upstream_config: " + str(nginx_upstream_config))
     debug("global shared_config: " + json.dumps(shared_config, indent=4))
+    # One last thing to fixup for the shared.yaml file, redis.
     workers_in_use = len(worker_types) > 0
+    # If using workers, we need redis
+    if workers_in_use:
+        # Redis wasn't found in the original config
+        if not original_redis:
+            # This is sufficient, because an existing statement of redis will be used.
+            enable_internal_redis = True
 
     # Shared homeserver config
     convert(
@@ -1475,8 +1492,7 @@ def generate_worker_files(
         "/conf/workers/shared.yaml",
         shared_worker_config=yaml.dump(shared_config),
         appservice_registrations=appservice_registrations,
-        enable_redis=workers_in_use,
-        workers_in_use=workers_in_use,
+        enable_internal_redis=enable_internal_redis,
     )
 
     # Nginx config
@@ -1516,7 +1532,7 @@ def generate_worker_files(
         "/conf/supervisord.conf.j2",
         "/etc/supervisor/supervisord.conf",
         main_config_path=config_path,
-        enable_redis=workers_in_use,
+        enable_redis=enable_internal_redis,
         enable_redis_exporter=enable_redis_exporter,
         enable_postgres_exporter=enable_postgres_exporter,
         enable_prometheus=enable_prometheus,

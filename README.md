@@ -11,7 +11,7 @@ way to bring the use of multiple CPU's into the equation was to use 'workers'.
 
 [Synapse Configuration Manual](https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html)
 
-Two things make this container better than others I've seen:
+A few things make this container great:
 1. You can delete your homeserver.yaml(the main configuration file) and it will just
  remake it based on variables you declare(If you haven't declared them, obviously that
  won't work right). Keeps everything clean and up-to-date. Everything can be stored in

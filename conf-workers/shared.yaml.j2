@@ -3,7 +3,8 @@
 # configure_workers_and_start.py uses and amends to this file depending on the workers
 # that have been selected.
 
-{% if enable_redis %}
+{% if enable_internal_redis %}
+{# Although this feels bare, all the defaults for host and port are exactly right. #}
 redis:
     enabled: true
 {% endif %}
