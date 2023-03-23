@@ -1,5 +1,5 @@
 # Synapse with Workers Docker Image
-***BIG FAT WARNING BITS: I'm still double checking everything here is true, use with a pinch of salt.***
+***BIG FAT WARNING BITS: I'm still double-checking everything here is true, use with a pinch of salt.***
 
 Synapse Docker image based on Matrix.org's [workers dockerfile](https://github.com/matrix-org/synapse/docker/Dockerfile-workers). Built for use on Unraid, but can 
 be used elsewhere. By default, Python only allows a single process because of a [GIL](https://realpython.com/python-gil/). The developers of Synapse decided that the best 
@@ -12,12 +12,12 @@ way to bring the use of multiple CPU's into the equation was to use 'workers'.
 [Synapse Configuration Manual](https://matrix-org.github.io/synapse/latest/usage/configuration/config_documentation.html)
 
 Two things make this container better than others I've seen:
-1. You can delete your homeserver.yaml(the main configuration file) and it will just 
- remake it based on variables you declare. Keeps everything clean and up-to-date. 
- Everything can be stored in the template for ease of use. If you use an existing 
- homeserver.yaml, you shouldn't need to do anything to update your listeners(TODO: need to
- check this is true if using the historical 8448 port still. I have no way to verify
- this.)
+1. You can delete your homeserver.yaml(the main configuration file) and it will just
+ remake it based on variables you declare(If you haven't declared them, obviously that
+ won't work right). Keeps everything clean and up-to-date. Everything can be stored in
+ the template for ease of use. If you use an existing homeserver.yaml, you shouldn't
+ need to do anything to update your listeners(TODO: need to check this is true if using
+ the historical 8448 port still. I have no way to verify this.)
 2. Adding workers so that it can truly be multiprocess capable is as simple as adding
  the names to an environmental variable and recreating(or force updating) the container.
  All the worker details including reverse proxying of endpoints and replication is 
@@ -43,7 +43,7 @@ to this one. The recommended method is still using the Official Synapse Manual(l
 above). Most(but not all) configuration options can be set in advance with environmental
 variables(see below) if you do not have a homeserver.yaml already made.
 
-### Environment Variables
+## Environment Variables
 *(if remaking your configuration, unused otherwise)*:
 * *SYNAPSE_SERVER_NAME*: . If you have an existing database, make sure you don't change this as many things will break.
 * *SYNAPSE_REPORT_STATS*: yes or no, explicitly can't be true or false or 1 or 0.
