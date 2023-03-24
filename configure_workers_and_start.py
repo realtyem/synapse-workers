@@ -537,9 +537,9 @@ class Workers:
             requested_worker_type = worker_type_split[1]
 
         # If there was a requested name, it's been removed now
-        worker_type_set: Set[str] = set(split_and_strip_string(
-            requested_worker_type, "+"
-        ))
+        worker_type_set: Set[str] = set(
+            split_and_strip_string(requested_worker_type, "+")
+        )
 
         if worker_base_name:
             # It'll be useful to have this in the log in case it's a complex of many
@@ -929,8 +929,7 @@ def split_and_strip_string(given_string: str, split_char: str) -> List:
 
 
 def extract_port_number_from_original_listeners(
-        original_listeners_list: List[Any],
-        listener_to_find: str
+    original_listeners_list: List[Any], listener_to_find: str
 ) -> int:
     """
     Iterate and return the port number for a given listener from the original
@@ -1019,9 +1018,19 @@ def generate_worker_files(
         if original_listeners:
             debug("original_listeners: " + json.dumps(original_listeners, indent=4))
             debug(f"original_listeners length: {len(original_listeners)}")
-            original_client_listener_port = extract_port_number_from_original_listeners(original_listeners, "client")
-            original_federation_listener_port = extract_port_number_from_original_listeners(original_listeners, "federation")
-            original_replication_listener_port = extract_port_number_from_original_listeners(original_listeners, "replication")
+            original_client_listener_port = extract_port_number_from_original_listeners(
+                original_listeners, "client"
+            )
+            original_federation_listener_port = (
+                extract_port_number_from_original_listeners(
+                    original_listeners, "federation"
+                )
+            )
+            original_replication_listener_port = (
+                extract_port_number_from_original_listeners(
+                    original_listeners, "replication"
+                )
+            )
 
         # Any of these listeners could have been declared in the original
         # homeserver.yaml file. Make a new listeners block with appropriate
@@ -1040,7 +1049,8 @@ def generate_worker_files(
                 "The original 'replication' listener port "
                 f"'{original_replication_listener_port}' is being ignored. At this "
                 "time, that is a security issue. 'Replication' listeners are only used "
-                "by the main process when workers are present.")
+                "by the main process when workers are present."
+            )
 
         listeners = [
             {
@@ -1064,10 +1074,7 @@ def generate_worker_files(
                     "bind_addresses": ["0.0.0.0"],
                     "type": "http",
                     "resources": [
-                        {
-                            "names": ["client", "federation"],
-                            "compress": True
-                        }
+                        {"names": ["client", "federation"], "compress": True}
                     ],
                     "tls": False,
                     "x_forwarded": True,
@@ -1083,12 +1090,7 @@ def generate_worker_files(
                     "port": MAIN_PROCESS_NEW_CLIENT_PORT,
                     "bind_addresses": ["0.0.0.0"],
                     "type": "http",
-                    "resources": [
-                        {
-                            "names": ["client"],
-                            "compress": True
-                        }
-                    ],
+                    "resources": [{"names": ["client"], "compress": True}],
                     "tls": False,
                     "x_forwarded": True,
                 },
@@ -1096,12 +1098,7 @@ def generate_worker_files(
                     "port": MAIN_PROCESS_NEW_FEDERATION_PORT,
                     "bind_addresses": ["0.0.0.0"],
                     "type": "http",
-                    "resources": [
-                        {
-                            "names": ["federation"],
-                            "compress": True
-                        }
-                    ],
+                    "resources": [{"names": ["federation"], "compress": True}],
                     "tls": False,
                     "x_forwarded": True,
                 },
