@@ -163,6 +163,7 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
             "^/_matrix/client/versions$",
             "^/_matrix/client/(api/v1|r0|v3|unstable)/voip/turnServer$",
             "^/_matrix/client/(api/v1|r0|v3|unstable)/register$",
+            "^/_matrix/client/(api/v1|r0|v3|unstable)/register/available$",
             "^/_matrix/client/(r0|v3|unstable)/auth/.*/fallback/web$",
             # This one needs to be routed by the .* cuz that's the room name.
             "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/messages$",
@@ -171,6 +172,7 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
             "^/_matrix/client/(r0|v3|unstable/.*)/rooms/.*/aliases",
             "^/_matrix/client/v1/rooms/.*/timestamp_to_event$",
             "^/_matrix/client/(api/v1|r0|v3|unstable)/search",
+            "^/_matrix/client/(r0|v3|unstable)/password_policy$",
         ],
         "shared_extra_conf": {},
         "worker_extra_conf": "",
@@ -234,6 +236,7 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
             "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/"
             "(join|invite|leave|ban|unban|kick)$",
             "^/_matrix/client/(api/v1|r0|v3|unstable)/join/",
+            "^/_matrix/client/(api/v1|r0|v3|unstable)/knock/",
             "^/_matrix/client/(api/v1|r0|v3|unstable)/profile/",
             "^/_matrix/client/(v1|unstable/org.matrix.msc2716)/rooms/.*/batch_send",
         ],
