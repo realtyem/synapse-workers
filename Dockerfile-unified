@@ -20,7 +20,6 @@
 
 ARG SYNAPSE_VERSION=latest
 ARG REDIS_VERSION=7.0.8
-ARG FROM=matrixdotorg/synapse:$SYNAPSE_VERSION
 
 ###
 ### Stage 2: Add-ons
@@ -72,7 +71,7 @@ FROM realtyem/synapse-tools:latest as tools
 ### Stage #: runtime
 ###
 
-FROM $FROM
+FROM matrixdotorg/synapse
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
