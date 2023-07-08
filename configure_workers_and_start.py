@@ -1483,6 +1483,12 @@ def generate_worker_files(
     workers_in_use = len(worker_types) > 0
     # If using workers, we need redis
     if workers_in_use:
+        # Add 'main' to the instance_map if using workers
+        instance_map = shared_config.setdefault("instance_map", {})
+        instance_map["main"] = {
+                "host": "localhost",
+                "port": MAIN_PROCESS_NEW_REPLICATION_PORT,
+            }
         # Redis wasn't found in the original config
         if not original_redis:
             # This is sufficient, because an existing statement of redis will be used.
