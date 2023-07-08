@@ -7,6 +7,7 @@
 {# Although this feels bare, all the defaults for host and port are exactly right. #}
 redis:
     enabled: true
+    path: /dev/shm/redis.sock
 {% endif %}
 
 {% if appservice_registrations is not none %}

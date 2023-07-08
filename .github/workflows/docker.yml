@@ -64,7 +64,7 @@ jobs:
       - uses: dorny/paths-filter@v2
         if: |
           github.event_name == 'push' ||
-          github.event.inputs.branch != 'custom'
+          github.event_name == 'schedule'
         id: changes
         with:
           filters: |
@@ -93,12 +93,13 @@ jobs:
       - name: Grab Context
         env:
           EVENT_CONTEXT: ${{ toJSON(github) }}
+          STEPS_CONTEXT: ${{ toJSON(steps) }}
         run: |
           echo $EVENT_CONTEXT
 
       - name: Grab Github ENV outputs
         run: |
-          echo $GITHUB_OUTPUT
+          echo ${GITHUB_OUTPUT}
 
       - name: Set up Docker Buildx
         id: buildx

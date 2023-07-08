@@ -92,10 +92,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libwebp6 \
       nano \
       openssl \
+      redis-tools \
       xmlsec1 \
       && rm -rf /var/lib/apt/lists/*
-
-# COPY --from=builder /install /usr/local
 
 # Prepare directories. Do it in one layer
 RUN mkdir -p /etc/supervisor/conf.d && \
