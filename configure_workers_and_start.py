@@ -1532,6 +1532,7 @@ def generate_worker_files(
             "/conf/prometheus.yml.j2",
             "/etc/prometheus/prometheus.yml",
             metric_endpoint_locations=prom_endpoint_config,
+            metric_scrape_interval=os.environ.get("SYNAPSE_METRICS_SCRAPE_INTERVAL", "15s")
         )
 
     # Supervisord config

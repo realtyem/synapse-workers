@@ -1,5 +1,5 @@
 global:
-  scrape_interval: 15s
+  scrape_interval: {{ metric_scrape_interval }}
 
   external_labels:
     monitor: 'monitor'
@@ -23,7 +23,7 @@ scrape_configs:
       labels:
         instance: "Synapse-Coturn"
   - job_name: "synapse"
-    scrape_interval: 15s
+    scrape_interval: {{ metric_scrape_interval }}
     metrics_path: "/_synapse/metrics"
     static_configs:
     - targets: ["localhost:8060"]
