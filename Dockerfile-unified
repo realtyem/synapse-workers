@@ -57,7 +57,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # based on the same debian version as the synapse image, to make sure we get
 # the expected version of libc.
 
-FROM redis:$REDIS_VERSION-bullseye AS redis_base
+FROM eqalpha/keydb:latest AS redis_base
 
 # The synapse auto compressor is from an image we build. It won't change much
 # so there's no reason to not have this pre-compiled and just borrow it. This also
@@ -92,9 +92,18 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libwebp6 \
       nano \
       openssl \
-      redis-tools \
+      wget \
       xmlsec1 \
       && rm -rf /var/lib/apt/lists/*
+
+# Install keydb from their supplied PPA
+#RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+#    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+#    echo "deb https://download.keydb.dev/open-source-dist bullseye main" | tee /etc/apt/sources.list.d/keydb.list && \
+#    wget -O /etc/apt/trusted.gpg.d/keydb.gpg https://download.keydb.dev/open-source-dist/keyring.gpg && \
+#    apt-get update -qq && apt-get install -yqq \
+#        keydb keydb-server \
+#    && rm -rf /var/lib/apt/lists/*
 
 # Prepare directories. Do it in one layer
 RUN mkdir -p /etc/supervisor/conf.d && \
@@ -108,7 +117,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install supervisor~=4.2
 
 # Copy over redis and nginx
-COPY --from=redis_base /usr/local/bin/redis-server /usr/local/bin
+ COPY --from=redis_base /usr/local/bin/keydb-server /usr/local/bin
 
 COPY --from=deps_base /usr/sbin/nginx /usr/sbin
 COPY --from=deps_base /usr/share/nginx /usr/share/nginx

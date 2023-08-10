@@ -18,8 +18,8 @@ stderr_logfile_maxbytes=0
 username=www-data
 autorestart=true
 
-[program:redis]
-command=/usr/local/bin/prefix-log /usr/local/bin/redis-server --unixsocket /dev/shm/redis.sock --io-threads 4
+[program:keydb]
+command=/usr/local/bin/prefix-log /usr/local/bin/keydb-server --unixsocket /dev/shm/redis.sock --server-threads 8
 priority=1
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
