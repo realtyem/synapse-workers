@@ -1486,9 +1486,9 @@ def generate_worker_files(
         # Add 'main' to the instance_map if using workers
         instance_map = shared_config.setdefault("instance_map", {})
         instance_map["main"] = {
-                "host": "localhost",
-                "port": MAIN_PROCESS_NEW_REPLICATION_PORT,
-            }
+            "host": "localhost",
+            "port": MAIN_PROCESS_NEW_REPLICATION_PORT,
+        }
         # Redis wasn't found in the original config
         if not original_redis:
             # This is sufficient, because an existing statement of redis will be used.
@@ -1532,7 +1532,9 @@ def generate_worker_files(
             "/conf/prometheus.yml.j2",
             "/etc/prometheus/prometheus.yml",
             metric_endpoint_locations=prom_endpoint_config,
-            metric_scrape_interval=os.environ.get("SYNAPSE_METRICS_SCRAPE_INTERVAL", "15s")
+            metric_scrape_interval=os.environ.get(
+                "SYNAPSE_METRICS_SCRAPE_INTERVAL", "15s"
+            ),
         )
 
     # Supervisord config
