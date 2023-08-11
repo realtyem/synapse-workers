@@ -6,8 +6,11 @@ log_format backend '[$time_local] - $proxy_add_x_forwarded_for - URT:$upstream_r
 
 upstream main_synapse_process {
     zone upstreams 64K;
+{% if enable_proxy_to_unix_socket %}
+    server unix:/run/main_public.sock;
+{% else %}
     server localhost:{{ main_proxy_pass_cli_port }};
-
+{% endif %}
     keepalive 2;
 }
 

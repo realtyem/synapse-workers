@@ -713,7 +713,7 @@ class NginxConfig:
         # allows for better performance because of shared_mem usage for state
         # information on upstreams and by recycling open connections instead of
         # constantly creating and closing them. The connection pool is naturally
-        # quick large, but a given closed connection holds the file descriptors for 2
+        # quite large, but a given closed connection holds the file descriptors for 2
         # minutes before adding it back to the pool.
 
         # Uses data from
@@ -859,6 +859,7 @@ def add_worker_roles_to_shared_config(
     worker_type_list: list,
     worker_name: str,
     worker_ports: Dict[str, int],
+    use_unix_socket: bool = False,
 ) -> None:
     """Given a dictionary representing a config file shared across all workers,
     append appropriate worker information to it for the current worker_type instance.
@@ -871,6 +872,7 @@ def add_worker_roles_to_shared_config(
         worker_name: The name of the worker instance.
         worker_ports: The dict of ports to find the HTTP replication port that the
             worker instance is listening on.
+        use_unix_socket: If a socket path should be used instead of a host/port combo
     """
     # The instance_map config field marks the workers that write to various replication
     # streams
@@ -914,13 +916,18 @@ def add_worker_roles_to_shared_config(
             ).append(worker_name)
 
         if "replication" in worker_ports.keys():
-            # Map of worker instance names to host/ports combos. If a worker type in
-            # WORKERS_CONFIG needs to be added here in the future, just add a
+            # Map of worker instance names to path or host/ports combos. If a worker
+            # type in WORKERS_CONFIG needs to be added here in the future, just add a
             # 'replication' entry to the list in listener_resources for that worker.
-            instance_map[worker_name] = {
-                "host": "localhost",
-                "port": worker_ports["replication"],
-            }
+            if use_unix_socket:
+                instance_map[worker_name] = {
+                    "path": f"/run/worker.{worker_ports['replication']}",
+                }
+            else:
+                instance_map[worker_name] = {
+                    "host": "localhost",
+                    "port": worker_ports["replication"],
+                }
 
 
 def combine_shared_config_fragments(
@@ -1098,14 +1105,23 @@ def generate_worker_files(
                 "by the main process when workers are present."
             )
 
-        listeners = [
-            {
-                "port": MAIN_PROCESS_NEW_REPLICATION_PORT,
-                "bind_address": "127.0.0.1",
-                "type": "http",
-                "resources": [{"names": ["replication"]}],
-            }
-        ]
+        if enable_replication_unix_sockets:
+            listeners = [
+                {
+                    "path": MAIN_PROCESS_NEW_REPLICATION_UNIX_SOCKET_PATH,
+                    "type": "http",
+                    "resources": [{"names": ["replication"]}],
+                }
+            ]
+        else:
+            listeners = [
+                {
+                    "port": MAIN_PROCESS_NEW_REPLICATION_PORT,
+                    "bind_address": "127.0.0.1",
+                    "type": "http",
+                    "resources": [{"names": ["replication"]}],
+                }
+            ]
 
         # Construct a separate health endpoint.
         if enable_replication_unix_sockets or enable_external_unix_sockets:
@@ -1135,41 +1151,72 @@ def generate_worker_files(
         # of federation traffic.
         # Note: This is not recommended, and is not a performance enhancement.
         if original_client_listener_port == original_federation_listener_port:
-            new_main_listeners = [
-                {
-                    "port": MAIN_PROCESS_NEW_CLIENT_PORT,
-                    "bind_addresses": ["0.0.0.0"],
-                    "type": "http",
-                    "resources": [
-                        {"names": ["client", "federation"], "compress": True}
-                    ],
-                    "tls": False,
-                    "x_forwarded": True,
-                }
-            ]
+            if enable_external_unix_sockets:
+                new_main_listeners = [
+                    {
+                        "path": MAIN_PROCESS_NEW_CLIENT_UNIX_SOCKET_PATH,
+                        "type": "http",
+                        "resources": [
+                            {"names": ["client", "federation"], "compress": True}
+                        ],
+                        "tls": False,
+                        "x_forwarded": True,
+                    }
+                ]
+            else:
+                new_main_listeners = [
+                    {
+                        "port": MAIN_PROCESS_NEW_CLIENT_PORT,
+                        "bind_addresses": ["0.0.0.0"],
+                        "type": "http",
+                        "resources": [
+                            {"names": ["client", "federation"], "compress": True}
+                        ],
+                        "tls": False,
+                        "x_forwarded": True,
+                    }
+                ]
         else:
             # This was put in as an experimental option to have separated listeners,
             # instead of the default single listener with all the externally important
             # resources attached. It's not completely wired up yet. When finished,
             # declaring SYNAPSE_HTTP_FED_PORT will make it work.
-            new_main_listeners = [
-                {
-                    "port": MAIN_PROCESS_NEW_CLIENT_PORT,
-                    "bind_addresses": ["0.0.0.0"],
-                    "type": "http",
-                    "resources": [{"names": ["client"], "compress": True}],
-                    "tls": False,
-                    "x_forwarded": True,
-                },
-                {
-                    "port": MAIN_PROCESS_NEW_FEDERATION_PORT,
-                    "bind_addresses": ["0.0.0.0"],
-                    "type": "http",
-                    "resources": [{"names": ["federation"], "compress": True}],
-                    "tls": False,
-                    "x_forwarded": True,
-                },
-            ]
+            if enable_external_unix_sockets:
+                new_main_listeners = [
+                    {
+                        "path": MAIN_PROCESS_NEW_CLIENT_UNIX_SOCKET_PATH,
+                        "type": "http",
+                        "resources": [{"names": ["client"], "compress": True}],
+                        "tls": False,
+                        "x_forwarded": True,
+                    },
+                    {
+                        "port": MAIN_PROCESS_NEW_FEDERATION_UNIX_SOCKET_PATH,
+                        "type": "http",
+                        "resources": [{"names": ["federation"], "compress": True}],
+                        "tls": False,
+                        "x_forwarded": True,
+                    },
+                ]
+            else:
+                new_main_listeners = [
+                    {
+                        "port": MAIN_PROCESS_NEW_CLIENT_PORT,
+                        "bind_addresses": ["0.0.0.0"],
+                        "type": "http",
+                        "resources": [{"names": ["client"], "compress": True}],
+                        "tls": False,
+                        "x_forwarded": True,
+                    },
+                    {
+                        "port": MAIN_PROCESS_NEW_FEDERATION_PORT,
+                        "bind_addresses": ["0.0.0.0"],
+                        "type": "http",
+                        "resources": [{"names": ["federation"], "compress": True}],
+                        "tls": False,
+                        "x_forwarded": True,
+                    },
+                ]
 
         listeners += new_main_listeners
 
@@ -1418,6 +1465,7 @@ def generate_worker_files(
             worker.types_list,
             new_worker_name,
             worker.listener_port_map,
+            use_unix_socket=enable_replication_unix_sockets,
         )
 
         # Enable the worker in supervisord. This is a list with the bastardized dict
@@ -1432,12 +1480,29 @@ def generate_worker_files(
         for listener in worker.listener_resources:
             this_listener: Dict[str, Any] = {}
             if listener in HTTP_BASED_LISTENER_RESOURCES:
-                this_listener = {
-                    "type": "http",
-                    "port": worker.listener_port_map[listener],
-                    # "resources": [{"names": [listener]}, {"compress": True}],
-                    "resources": [{"names": [listener]}],
-                }
+                binding_port_or_path = "port"
+                if enable_replication_unix_sockets and listener in ["replication"]:
+                    this_listener = construct_worker_listener_block(
+                        worker.listener_port_map[listener], [listener], True, False
+                    )
+                elif enable_external_unix_sockets and listener in [
+                    "client",
+                    "federation",
+                    "media",
+                ]:
+                    this_listener = construct_worker_listener_block(
+                        worker.listener_port_map[listener], [listener], True, True
+                    )
+                elif (
+                    enable_external_unix_sockets or enable_replication_unix_sockets
+                ) and listener in ["health"]:
+                    this_listener = construct_worker_listener_block(
+                        worker.listener_port_map[listener], [listener], True, False
+                    )
+                else:
+                    this_listener = construct_worker_listener_block(
+                        worker.listener_port_map[listener], [listener], False, False
+                    )
             # The 'metrics' and 'manhole' listeners don't use 'http' as their type.
             elif listener in ["metrics", "manhole"]:
                 this_listener = {
@@ -1481,7 +1546,6 @@ def generate_worker_files(
 
     for upstream_name, upstream_worker_ports in nginx.upstreams_to_ports.items():
         body = ""
-        # upstream_worker_ports = nginx.upstreams_to_ports.get(upstream_name)
         roles_list = nginx.upstreams_roles[upstream_name]
 
         # This presents a dilemma. Some endpoints are better load-balanced by
@@ -1520,9 +1584,13 @@ def generate_worker_files(
         elif any(x in roles_lb_header_list for x in roles_list):
             body += "    hash $http_authorization consistent;\n"
 
-        # Add specific "hosts" by port number to the upstream block.
+        # Add specific "hosts" by port number to the upstream block. In the case of Unix
+        # sockets, borrow the port number to individualize the socket files.
         for port in upstream_worker_ports:
-            body += f"    server localhost:{port};\n"
+            if enable_external_unix_sockets:
+                body += f"    server unix:/run/worker.{port};\n"
+            else:
+                body += f"    server localhost:{port};\n"
 
         # Need this to determine keepalive argument, need multiple of 2. Double the
         # number, as each connection to an upstream actually has two sockets. Then apply
@@ -1565,10 +1633,15 @@ def generate_worker_files(
     if workers_in_use:
         # Add 'main' to the instance_map if using workers
         instance_map = shared_config.setdefault("instance_map", {})
-        instance_map["main"] = {
-            "host": "localhost",
-            "port": MAIN_PROCESS_NEW_REPLICATION_PORT,
-        }
+        if enable_replication_unix_sockets:
+            instance_map["main"] = {
+                "path": MAIN_PROCESS_NEW_REPLICATION_UNIX_SOCKET_PATH,
+            }
+        else:
+            instance_map["main"] = {
+                "host": "localhost",
+                "port": MAIN_PROCESS_NEW_REPLICATION_PORT,
+            }
         # Redis wasn't found in the original config
         if not original_redis:
             # This is sufficient, because an existing statement of redis will be used.
@@ -1591,6 +1664,7 @@ def generate_worker_files(
         upstream_directives=nginx_upstream_config,
         tls_cert_path=os.environ.get("SYNAPSE_TLS_CERT"),
         tls_key_path=os.environ.get("SYNAPSE_TLS_KEY"),
+        enable_proxy_to_unix_socket=enable_external_unix_sockets,
         original_federation_listener_port=original_federation_listener_port,
         original_client_listener_port=original_client_listener_port,
         main_proxy_pass_cli_port=MAIN_PROCESS_NEW_CLIENT_PORT,
