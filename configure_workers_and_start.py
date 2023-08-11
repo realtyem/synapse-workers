@@ -1005,6 +1005,10 @@ def generate_worker_files(
     enable_manhole_master = getenv_bool("SYNAPSE_MANHOLE_MASTER", False)
     enable_manhole_workers = getenv_bool("SYNAPSE_MANHOLE_WORKERS", False)
     enable_metrics = getenv_bool("SYNAPSE_METRICS", False)
+    enable_replication_unix_sockets = getenv_bool(
+        "SYNAPSE_HTTP_REPLICATION_UNIX_SOCKETS", False
+    )
+    enable_external_unix_sockets = getenv_bool("SYNAPSE_EXTERNAL_UNIX_SOCKETS", False)
     enable_internal_redis = False
 
     # First read the original config file and extract the listeners block and a few
