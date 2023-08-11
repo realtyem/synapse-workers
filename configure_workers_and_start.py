@@ -69,8 +69,13 @@ MAIN_PROCESS_HTTP_LISTENER_PORT = 8008
 MAIN_PROCESS_HTTP_FED_LISTENER_PORT = 8448
 MAIN_PROCESS_NEW_CLIENT_PORT = 8080
 MAIN_PROCESS_NEW_FEDERATION_PORT = 8081
+MAIN_PROCESS_NEW_HEALTH_PORT = 8082
 MAIN_PROCESS_NEW_REPLICATION_PORT = 9093
 MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT = 8060
+MAIN_PROCESS_NEW_CLIENT_UNIX_SOCKET_PATH = "/run/main_public.sock"
+MAIN_PROCESS_NEW_FEDERATION_UNIX_SOCKET_PATH = "/run/main_public.sock"
+MAIN_PROCESS_NEW_HEALTH_UNIX_SOCKET_PATH = "/run/main_health.sock"
+MAIN_PROCESS_NEW_REPLICATION_UNIX_SOCKET_PATH = "/run/main_replication.sock"
 enable_compressor = False
 enable_coturn = False
 enable_prometheus = False
@@ -627,7 +632,7 @@ class Workers:
     ) -> None:
         """
         Simple helper to add to the listener_port_map and increment the counter of port
-        numbers.
+        numbers. Will be borrowing the serialized incrementation for Unix Sockets also.
 
         Args:
             worker_name: Name of worker
@@ -1070,6 +1075,27 @@ def generate_worker_files(
             }
         ]
 
+        # Construct a separate health endpoint.
+        if enable_replication_unix_sockets or enable_external_unix_sockets:
+            new_health_listener = [
+                {
+                    "path": MAIN_PROCESS_NEW_HEALTH_UNIX_SOCKET_PATH,
+                    "type": "http",
+                    "resources": [{"names": ["health"]}],
+                }
+            ]
+        else:
+            new_health_listener = [
+                {
+                    "port": MAIN_PROCESS_NEW_HEALTH_PORT,
+                    "bind_address": "127.0.0.1",
+                    "type": "http",
+                    "resources": [{"names": ["health"]}],
+                }
+            ]
+
+        listeners += new_health_listener
+
         # So, at this point we have the original 'client' and 'federation' ports.
         # Ideally, they will be the same port as that is what most guides say to do for
         # the docker image. Experimentally, allow a different port which at this time
@@ -1249,7 +1275,15 @@ def generate_worker_files(
 
     # A list of internal endpoints to healthcheck, starting with the main process
     # which exists even if no workers do.
-    healthcheck_urls = ["http://localhost:8080/health"]
+    if enable_external_unix_sockets or enable_replication_unix_sockets:
+        healthcheck_urls = [
+            f"--unix-socket {MAIN_PROCESS_NEW_HEALTH_UNIX_SOCKET_PATH} "
+            # The scheme and hostname from the following URL are ignored.
+            # The only thing that matters is the path `/health`
+            "http://localhost/health"
+        ]
+    else:
+        healthcheck_urls = [f"http://localhost:{MAIN_PROCESS_NEW_HEALTH_PORT}/health"]
 
     # Expand worker_type multiples if requested in shorthand(e.g. worker:2). Checking
     # for not an actual defined type of worker is done later.
@@ -1319,11 +1353,21 @@ def generate_worker_files(
         for listener_entry in worker.listener_resources:
             workers.set_listener_port_by_resource(new_worker_name, listener_entry)
 
-        # Every worker gets a separate port to handle it's 'health' resource. Append it
-        # to the list so docker can check it.
-        healthcheck_urls.append(
-            f"http://localhost:{worker.listener_port_map['health']}/health"
-        )
+        # Every worker gets a separate port or socket path to handle it's 'health'
+        # resource. Append it to the list so docker can check it.
+        if enable_external_unix_sockets or enable_replication_unix_sockets:
+            # For the case of Unix Sockets, we can just use the port number to
+            # individualize the name of the file. We should never have to reference
+            # these sockets directly, as that is what Nginx is doing for us.
+            healthcheck_urls.append(
+                f"--unix-socket /run/worker.{worker.listener_port_map['health']} "
+                # Of the below URL, only the path is actually used, the rest is ignored.
+                "http://localhost/health"
+            )
+        else:
+            healthcheck_urls.append(
+                f"http://localhost:{worker.listener_port_map['health']}/health"
+            )
 
         # Prepare the bits that will be used in the worker.yaml file
         worker_config = worker.extract_jinja_worker_template()
