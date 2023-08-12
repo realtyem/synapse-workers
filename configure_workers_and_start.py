@@ -323,7 +323,7 @@ NGINX_LOCATION_CONFIG_BLOCK = """
 
 NGINX_UPSTREAM_CONFIG_BLOCK = """
 upstream {upstream_name} {{
-    zone upstreams 64K;
+    zone upstreams 512K;
 {body}
     keepalive {keepalive_idle_connections};
 }}
@@ -973,6 +973,34 @@ def extract_port_number_from_original_listeners(
     return port_to_return
 
 
+def extract_socket_path_from_original_listeners(
+    original_listeners_list: List[Any], listener_to_find: str
+) -> Optional[str]:
+    """
+    Iterate and return the socket path for a given listener from the original
+        configuration files.
+    Args:
+        original_listeners_list: The list after extraction from the existing config
+        listener_to_find: The name of the listener to track down. e.g. 'client'
+    Returns: str of the path found, None if not found
+    """
+    # The original_listeners_list is a list with each entry being a dict containing, at
+    # least, a 'type' and a 'port' and another list(resources) with potentially more
+    # than one dict again containing, at least, one or more 'names' as a list.
+    path_to_return = None
+    for list_entry in original_listeners_list:
+        if "http" in list_entry["type"]:
+            for resource in list_entry["resources"]:
+                if listener_to_find in resource["names"]:
+                    debug(f"{listener_to_find} path found: {list_entry['path']}")
+                    path_to_return = list_entry["path"]
+        if listener_to_find in list_entry["type"]:
+            debug(f"{listener_to_find} path found: {list_entry['path']}")
+            path_to_return = list_entry["path"]
+
+    return path_to_return
+
+
 def construct_worker_listener_block(
     port_or_path_number: int,
     listener_type_as_list: List[str],
@@ -1064,6 +1092,9 @@ def generate_worker_files(
     original_client_listener_port = MAIN_PROCESS_HTTP_LISTENER_PORT
     original_federation_listener_port = MAIN_PROCESS_HTTP_LISTENER_PORT
     original_replication_listener_port = 0
+    original_client_listener_path = None
+    original_federation_listener_path = None
+    original_replication_listener_path = None
 
     with open(config_path) as file_stream:
         original_config = yaml.safe_load(file_stream)
@@ -1081,6 +1112,19 @@ def generate_worker_files(
             )
             original_replication_listener_port = (
                 extract_port_number_from_original_listeners(
+                    original_listeners, "replication"
+                )
+            )
+            original_client_listener_path = extract_socket_path_from_original_listeners(
+                original_listeners, "client"
+            )
+            original_federation_listener_path = (
+                extract_socket_path_from_original_listeners(
+                    original_listeners, "federation"
+                )
+            )
+            original_replication_listener_path = (
+                extract_socket_path_from_original_listeners(
                     original_listeners, "replication"
                 )
             )
@@ -1102,7 +1146,14 @@ def generate_worker_files(
                 "The original 'replication' listener port "
                 f"'{original_replication_listener_port}' is being ignored. At this "
                 "time, that is a security issue. 'Replication' listeners are only used "
-                "by the main process when workers are present."
+                "by the main process when workers are present. This will be overridden."
+            )
+        if original_replication_listener_path is not None:
+            log(
+                "The original 'replication' listener path "
+                f"'{original_replication_listener_path}' is being ignored. At this "
+                "time, that is a security issue. 'Replication' listeners are only used "
+                "by the main process when workers are present. This will be overridden"
             )
 
         if enable_replication_unix_sockets:
@@ -1627,6 +1678,9 @@ def generate_worker_files(
     debug("nginx.upstreams_to_ports: " + str(nginx.upstreams_to_ports))
     debug("nginx_upstream_config: " + str(nginx_upstream_config))
     debug("global shared_config: " + json.dumps(shared_config, indent=4))
+    debug(
+        "nginx_listen_unix_socket: " + str(os.environ.get("NGINX_LISTEN_UNIX_SOCKET"))
+    )
     # One last thing to fixup for the shared.yaml file, redis.
     workers_in_use = len(worker_types) > 0
     # If using workers, we need redis
@@ -1656,17 +1710,30 @@ def generate_worker_files(
         enable_internal_redis=enable_internal_redis,
     )
 
+    # For the main listening entrypoint that is a unix socket, this may be declared in
+    # the existing homeserver.yaml or it may be declared as an environmental variable.
+    # If both exist, the environmental variable takes precedence. Both of these can be
+    # None, which will be handled inside the nginx template itself.
+    # TODO: handle the case where both 'client' and 'federation' listeners are separated
+    #  and not on a single listener. This is part of the experimental dual listener
+    #  setup.
+    main_entry_point_unix_socket = os.environ.get("NGINX_LISTEN_UNIX_SOCKET")
+    if main_entry_point_unix_socket is None:
+        main_entry_point_unix_socket = original_client_listener_path
     # Nginx config
     convert(
         "/conf/nginx.conf.j2",
         "/etc/nginx/conf.d/matrix-synapse.conf",
         worker_locations=nginx_location_config,
         upstream_directives=nginx_upstream_config,
+        main_entry_point_unix_socket=main_entry_point_unix_socket,
         tls_cert_path=os.environ.get("SYNAPSE_TLS_CERT"),
         tls_key_path=os.environ.get("SYNAPSE_TLS_KEY"),
         enable_proxy_to_unix_socket=enable_public_unix_sockets,
         original_federation_listener_port=original_federation_listener_port,
         original_client_listener_port=original_client_listener_port,
+        original_client_listener_path=original_client_listener_path,
+        original_federation_listener_path=original_federation_listener_path,
         main_proxy_pass_cli_port=MAIN_PROCESS_NEW_CLIENT_PORT,
         # Part of the SYNAPSE_HTTP_FED_PORT experiment. Empty is ok here.
         main_proxy_pass_fed_port=MAIN_PROCESS_NEW_FEDERATION_PORT,

@@ -5,7 +5,7 @@
 log_format backend '[$time_local] - $proxy_add_x_forwarded_for - URT:$upstream_response_time request_time $request_time $status $upstream_addr: $request';
 
 upstream main_synapse_process {
-    zone upstreams 64K;
+    zone upstreams 512K;
 {% if enable_proxy_to_unix_socket %}
     server unix:/run/main_public.sock;
 {% else %}
@@ -22,7 +22,9 @@ server {
     # have to change any ports set up in your docker image
     listen {{ original_client_listener_port or '8008' }};
     listen [::]:{{ original_client_listener_port or '8008' }};
-
+{%- if main_entry_point_unix_socket is not none %}
+    listen unix:{{ main_entry_point_unix_socket }};
+{% endif -%}
 {% if tls_cert_path is not none and tls_key_path is not none %}
     # this allows for:
     # 1. Piping in a federation port directly if you have TlS certs in place. This is
