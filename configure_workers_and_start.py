@@ -1052,7 +1052,7 @@ def generate_worker_files(
     enable_replication_unix_sockets = getenv_bool(
         "SYNAPSE_HTTP_REPLICATION_UNIX_SOCKETS", False
     )
-    enable_external_unix_sockets = getenv_bool("SYNAPSE_EXTERNAL_UNIX_SOCKETS", False)
+    enable_public_unix_sockets = getenv_bool("SYNAPSE_PUBLIC_UNIX_SOCKETS", False)
     enable_internal_redis = False
 
     # First read the original config file and extract the listeners block and a few
@@ -1124,7 +1124,7 @@ def generate_worker_files(
             ]
 
         # Construct a separate health endpoint.
-        if enable_replication_unix_sockets or enable_external_unix_sockets:
+        if enable_replication_unix_sockets or enable_public_unix_sockets:
             new_health_listener = [
                 {
                     "path": MAIN_PROCESS_NEW_HEALTH_UNIX_SOCKET_PATH,
@@ -1151,7 +1151,7 @@ def generate_worker_files(
         # of federation traffic.
         # Note: This is not recommended, and is not a performance enhancement.
         if original_client_listener_port == original_federation_listener_port:
-            if enable_external_unix_sockets:
+            if enable_public_unix_sockets:
                 new_main_listeners = [
                     {
                         "path": MAIN_PROCESS_NEW_CLIENT_UNIX_SOCKET_PATH,
@@ -1181,7 +1181,7 @@ def generate_worker_files(
             # instead of the default single listener with all the externally important
             # resources attached. It's not completely wired up yet. When finished,
             # declaring SYNAPSE_HTTP_FED_PORT will make it work.
-            if enable_external_unix_sockets:
+            if enable_public_unix_sockets:
                 new_main_listeners = [
                     {
                         "path": MAIN_PROCESS_NEW_CLIENT_UNIX_SOCKET_PATH,
@@ -1354,7 +1354,7 @@ def generate_worker_files(
 
     # A list of internal endpoints to healthcheck, starting with the main process
     # which exists even if no workers do.
-    if enable_external_unix_sockets or enable_replication_unix_sockets:
+    if enable_public_unix_sockets or enable_replication_unix_sockets:
         healthcheck_urls = [
             f"--unix-socket {MAIN_PROCESS_NEW_HEALTH_UNIX_SOCKET_PATH} "
             # The scheme and hostname from the following URL are ignored.
@@ -1434,7 +1434,7 @@ def generate_worker_files(
 
         # Every worker gets a separate port or socket path to handle it's 'health'
         # resource. Append it to the list so docker can check it.
-        if enable_external_unix_sockets or enable_replication_unix_sockets:
+        if enable_public_unix_sockets or enable_replication_unix_sockets:
             # For the case of Unix Sockets, we can just use the port number to
             # individualize the name of the file. We should never have to reference
             # these sockets directly, as that is what Nginx is doing for us.
@@ -1485,7 +1485,7 @@ def generate_worker_files(
                     this_listener = construct_worker_listener_block(
                         worker.listener_port_map[listener], [listener], True, False
                     )
-                elif enable_external_unix_sockets and listener in [
+                elif enable_public_unix_sockets and listener in [
                     "client",
                     "federation",
                     "media",
@@ -1494,7 +1494,7 @@ def generate_worker_files(
                         worker.listener_port_map[listener], [listener], True, True
                     )
                 elif (
-                    enable_external_unix_sockets or enable_replication_unix_sockets
+                    enable_public_unix_sockets or enable_replication_unix_sockets
                 ) and listener in ["health"]:
                     this_listener = construct_worker_listener_block(
                         worker.listener_port_map[listener], [listener], True, False
@@ -1587,7 +1587,7 @@ def generate_worker_files(
         # Add specific "hosts" by port number to the upstream block. In the case of Unix
         # sockets, borrow the port number to individualize the socket files.
         for port in upstream_worker_ports:
-            if enable_external_unix_sockets:
+            if enable_public_unix_sockets:
                 body += f"    server unix:/run/worker.{port};\n"
             else:
                 body += f"    server localhost:{port};\n"
@@ -1664,7 +1664,7 @@ def generate_worker_files(
         upstream_directives=nginx_upstream_config,
         tls_cert_path=os.environ.get("SYNAPSE_TLS_CERT"),
         tls_key_path=os.environ.get("SYNAPSE_TLS_KEY"),
-        enable_proxy_to_unix_socket=enable_external_unix_sockets,
+        enable_proxy_to_unix_socket=enable_public_unix_sockets,
         original_federation_listener_port=original_federation_listener_port,
         original_client_listener_port=original_client_listener_port,
         main_proxy_pass_cli_port=MAIN_PROCESS_NEW_CLIENT_PORT,
