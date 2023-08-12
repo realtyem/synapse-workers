@@ -966,6 +966,38 @@ def extract_port_number_from_original_listeners(
     return port_to_return
 
 
+def construct_worker_listener_block(
+    port_or_path_number: int,
+    listener_type_as_list: List[str],
+    use_socket: bool = False,
+    use_compress: bool = False,
+) -> Dict[str, str | List[Dict[str, List]]]:
+    """
+    Construct a JSON block for a worker listener, using either a path or a port. A port
+    assumes that 0.0.0.0 is the host to bind to. This is a much simplified version of a
+    listener compared to a regular listener.
+
+    Args:
+        port_or_path_number: This number is used either way, as an obvious port or to
+            individualize the worker socket file.
+        listener_type_as_list: The types of listener, e.g. 'client', 'federation' or
+            'replication'
+        use_socket: If True, set up as a Unix socket
+        use_compress: If True, enable compression for the listener
+    Return: A dict structure that translates into a JSON block and ends up being YAML
+    """
+    port_or_path_key = "path" if use_socket else "port"
+    port_or_path_value = (
+        f"/run/worker.{port_or_path_number}" if use_socket else port_or_path_number
+    )
+    this_listener = {
+        "type": "http",
+        port_or_path_key: port_or_path_value,
+        "resources": [{"names": listener_type_as_list, "compress": use_compress}],
+    }
+    return this_listener
+
+
 def generate_base_homeserver_config() -> None:
     """Starts Synapse and generates a basic homeserver config, which will later be
     modified for worker support.
