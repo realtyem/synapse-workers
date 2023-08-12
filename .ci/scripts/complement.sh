@@ -206,6 +206,11 @@ if [[ -n "$WORKERS" ]]; then
   # Workers can only use Postgres as a database.
   export PASS_SYNAPSE_COMPLEMENT_DATABASE=postgres
 
+  # We are using workers, so set up replication unix sockets if appropriate
+  if [[ -n "$UNIX_SOCKETS" ]]; then
+    export PASS_SYNAPSE_HTTP_REPLICATION_UNIX_SOCKETS=1
+  fi
+
   # And provide some more configuration to complement.
 
   # It can take quite a while to spin up a worker-mode Synapse for the first
@@ -223,6 +228,10 @@ else
   # The tests for importing historical messages (MSC2716)
   # only pass with monoliths, currently.
   test_tags="$test_tags,msc2716"
+fi
+
+if [[ -n "$UNIX_SOCKETS" ]]; then
+  export PASS_SYNAPSE_PUBLIC_UNIX_SOCKETS=1
 fi
 
 if [[ -n "$ASYNCIO_REACTOR" ]]; then
