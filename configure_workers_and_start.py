@@ -321,6 +321,7 @@ NGINX_LOCATION_CONFIG_BLOCK = """
     }}
 """
 
+# Bump zone shared memory upto 512k from 64k
 NGINX_UPSTREAM_CONFIG_BLOCK = """
 upstream {upstream_name} {{
     zone upstreams 512K;
