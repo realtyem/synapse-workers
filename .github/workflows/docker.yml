@@ -4,7 +4,8 @@
 # 3. A nightly image, which is based on the develop branch and is cut at 1 UTC which is about 8pm in my timezone
 # 4. A custom image, sourced from a remote repository. Give the workflow a custom repo in the format 'owner/repo'
 #       and a branch in the format 'custom-branch' and an image will be built and uploaded with the custom branch
-#       name as it's tag.
+#       name as it's tag. Do not use characters in your branch name that are not docker tag approved, or the build
+#       will fail. Hyphens are ok, underscores and either slashes are not.
 # All are automated builds, by checking the matrix-org repo once a day and if a new release is found building
 # the image, or in the case of nightly just building it every night, even weekends(sometimes things get committed
 # then too).
@@ -20,6 +21,19 @@
 #   local docker store won't allow access to built images directly(some kind of security issue?). Information came from:
 #   https://docs.docker.com/build/ci/github-actions/named-contexts and the normal docs for docker buildx.
 #   Also went ahead and reformatted this file and fixed some loose conditions.
+
+# We rebuild Release, Pre-Release and Nightly if there is a human change(push) to the master branch. Earlier in the day, a different
+# workflow will make updates to the release files and commit those changes. These changes are not detected here. A later scheduled
+# run will check for these changes and build appropriate images. In the case of Nightly, it will be built every night.
+
+# The conditions to look for are:
+# schedule:
+#   release: steps.changes.outputs.release == true
+#   prelease: steps.changes.outputs.prerelease == true
+#   nightly: github.event_name == 'schedule'
+#
+# push: always rebuild all images
+# workflow_dispatch: always rebuild all images if master branch is chosen
 name: Build docker images
 
 on:
@@ -27,16 +41,13 @@ on:
     - cron: '0 1 * * *'
   push:
     branches:
-      - "**"
-    paths:
-      - "release-versions/**"
+      - "master"
   workflow_dispatch:
     inputs:
       branch:
         type: choice
         options:
           - master
-          - develop
           - custom
       custom_repo:
       custom_branch:
@@ -62,11 +73,14 @@ jobs:
         uses: actions/checkout@v3
 
       - uses: dorny/paths-filter@v2
+      # If the automated schedule for updating the version string has run and committed
+      # an update, it will not register as a push. Only human pushed changes register as
+      # such.
         if: |
-          github.event_name == 'push' ||
           github.event_name == 'schedule'
         id: changes
         with:
+          base: 'master'
           filters: |
             release:
               - 'release-versions/synapse-latest.txt'
@@ -80,14 +94,22 @@ jobs:
 #        with:
 #          platforms: arm64
 
-      - name: Get Version
-        # It seems harmless to just let this work even if not building a new release
-        id: get_version
+      - name: Get Release Version
+        id: get_release_version
         if: |
           github.event_name == 'push' ||
+          steps.changes.outputs.release == 'true' ||
           github.event.inputs.branch == 'master'
         run: |
           echo "synapse_latest_version=$(cat release-versions/synapse-latest.txt)" >> $GITHUB_OUTPUT
+
+      - name: Get Pre-Release Version
+        id: get_prerelease_version
+        if: |
+          github.event_name == 'push' ||
+          steps.changes.outputs.prerelease == 'true' ||
+          github.event.inputs.branch == 'master'
+        run: |
           echo "synapse_prerelease_version=$(cat release-versions/synapse-prerelease.txt)" >> $GITHUB_OUTPUT
 
       - name: Grab Context
@@ -122,6 +144,7 @@ jobs:
 
       - name: Build and Push Latest Image
         if: |
+          github.event_name == 'push' ||
           steps.changes.outputs.release == 'true' ||
           github.event.inputs.branch == 'master'
         uses: docker/build-push-action@v4
@@ -131,11 +154,11 @@ jobs:
           labels: "gitsha1=${{ github.sha }}"
           tags: |
             realtyem/synapse:latest
-            realtyem/synapse:${{ steps.get_version.outputs.synapse_latest_version }}
+            realtyem/synapse:${{ steps.get_release_version.outputs.synapse_latest_version }}
             ghcr.io/realtyem/synapse:latest
-            ghcr.io/realtyem/synapse:${{ steps.get_version.outputs.synapse_latest_version }}
+            ghcr.io/realtyem/synapse:${{ steps.get_release_version.outputs.synapse_latest_version }}
           build-contexts: |
-            matrixdotorg/synapse=docker-image://matrixdotorg/synapse:${{ steps.get_version.outputs.synapse_latest_version }}
+            matrixdotorg/synapse=docker-image://matrixdotorg/synapse:${{ steps.get_release_version.outputs.synapse_latest_version }}
           file: "Dockerfile-unified"
           platforms: linux/amd64
           cache-from: type=gha
@@ -143,6 +166,7 @@ jobs:
 
       - name: Build and Push Pre-Release Image
         if: |
+          github.event_name == 'push' ||
           steps.changes.outputs.prerelease == 'true' ||
           github.event.inputs.branch == 'master'
         uses: docker/build-push-action@v4
@@ -151,10 +175,10 @@ jobs:
           context: .
           labels: "gitsha1=${{ github.sha }}"
           tags: |
-            realtyem/synapse:${{ steps.get_version.outputs.synapse_prerelease_version }}
-            ghcr.io/realtyem/synapse:${{ steps.get_version.outputs.synapse_prerelease_version }}
+            realtyem/synapse:${{ steps.get_prerelease_version.outputs.synapse_prerelease_version }}
+            ghcr.io/realtyem/synapse:${{ steps.get_prerelease_version.outputs.synapse_prerelease_version }}
           build-contexts: |
-            matrixdotorg/synapse=docker-image://matrixdotorg/synapse:${{ steps.get_version.outputs.synapse_prerelease_version }}
+            matrixdotorg/synapse=docker-image://matrixdotorg/synapse:${{ steps.get_prerelease_version.outputs.synapse_prerelease_version }}
           file: "Dockerfile-unified"
           platforms: linux/amd64
           cache-from: type=gha
@@ -162,8 +186,9 @@ jobs:
 
       - name: Build and Push Nightly Image
         if: |
+          github.event_name == 'push' ||
           github.event_name == 'schedule' ||
-          github.event.inputs.branch == 'develop'
+          github.event.inputs.branch == 'master'
         uses: docker/build-push-action@v4
         with:
           push: true
