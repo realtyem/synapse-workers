@@ -1175,7 +1175,9 @@ def generate_worker_files(
                 }
             ]
 
-        # Construct a separate health endpoint.
+        # Construct a separate health endpoint. If we are using unix sockets for other
+        # listeners seems prudent to use that here too. Since it is all self-contained
+        # in this image, it should be safe.
         if enable_replication_unix_sockets or enable_public_unix_sockets:
             new_health_listener = [
                 {
