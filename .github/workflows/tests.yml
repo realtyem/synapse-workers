@@ -42,6 +42,23 @@ jobs:
 
           - arrangement: monolith
             database: SQLite
+            unix_sockets: True
+
+          - arrangement: monolith
+            database: Postgres
+            unix_sockets: True
+
+          - arrangement: workers
+            database: Postgres
+            unix_sockets: True
+
+          - arrangement: workers
+            database: Postgres
+            worker_types: 'event_persister:2, stream_writers=account_data+presence+receipts+to_device+typing, singles=background_worker+user_dir+frontend_proxy+media_repository+appservice, senders=pusher+federation_sender, readers=federation_reader+client_reader+synchrotron+federation_inbound+event_creator:2'
+            unix_sockets: True
+
+          - arrangement: monolith
+            database: SQLite
             reactor: asyncio
 
           - arrangement: monolith
@@ -56,6 +73,27 @@ jobs:
             database: Postgres
             reactor: asyncio
             worker_types: 'event_persister:2, stream_writers=account_data+presence+receipts+to_device+typing, singles=background_worker+user_dir+frontend_proxy+media_repository+appservice, senders=pusher+federation_sender, readers=federation_reader+client_reader+synchrotron+federation_inbound+event_creator:2'
+
+          - arrangement: monolith
+            database: SQLite
+            reactor: asyncio
+            unix_sockets: True
+
+          - arrangement: monolith
+            database: Postgres
+            reactor: asyncio
+            unix_sockets: True
+
+          - arrangement: workers
+            database: Postgres
+            reactor: asyncio
+            unix_sockets: True
+
+          - arrangement: workers
+            database: Postgres
+            reactor: asyncio
+            worker_types: 'event_persister:2, stream_writers=account_data+presence+receipts+to_device+typing, singles=background_worker+user_dir+frontend_proxy+media_repository+appservice, senders=pusher+federation_sender, readers=federation_reader+client_reader+synchrotron+federation_inbound+event_creator:2'
+            unix_sockets: True
 
 
     steps:
@@ -84,6 +122,7 @@ jobs:
           WORKER_TYPES: ${{ matrix.worker_types || '' }}
           # Take advantage of the fact that the validation for truthy doesn't actually exist here.
           ASYNCIO_REACTOR: ${{ matrix.reactor || '' }}
+          UNIX_SOCKETS: ${{ (matrix.unix_sockets) && 1 || '' }}
         run: |
           set -o pipefail
           COMPLEMENT_DIR=`pwd`/complement synapse-workers/.ci/scripts/complement.sh -json 2>&1 | synapse-workers/.ci/scripts/gotestfmt

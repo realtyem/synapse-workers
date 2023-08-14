@@ -127,3 +127,20 @@ Grafana dashboards are provided in the contrib directory of the source repo.<br>
  but not the homeserver configuration are COTURN_MIN_PORT and COTURN_MAX_PORT, which default 
  if not set to 49153 and 49173, respectively. And you can enable COTURN_METRICS so you can see
  those pretty(boring) graphs.
+* *NGINX_LISTEN_UNIX_SOCKET*: Set to a path and file that is represented internally for
+   a Unix socket connection into the main entrypoint of the internal reverse proxy. If
+   you do not bind mount this location to outside the container, this is useless. For
+   example, set this to `/tmp/synapse-main.sock` and bind mount this to somewhere your
+   external reverse proxy can find it, such as `/dev/shm` or `/run`.
+* **Special Note for these next two options**: if you use either of these, they will create
+  sockets on the internal directory structure at `/run`. I highly recommend adding to
+  the docker start arguments `--tmpfs /run` so this will become non-persisted in the
+  docker layer. In unRAID, you can find this under `Advanced view` and `Extra
+  Parameters`. If you run into errors that sound like "Could not create socket file" or
+  "Could not create lock file" you may have forgotten to do this.(May fix this later, to
+  make sockets created onto `/dev/shm` instead as that is not persisted or exposed)
+  * *SYNAPSE_PUBLIC_UNIX_SOCKETS*: Set to anything(1 is fine) to enable internal usage of
+    Unix sockets between the internal reverse proxy and Synapse public facing endpoints.
+  * *SYNAPSE_HTTP_REPLICATION_UNIX_SOCKETS*: set to anything(1 is fine) to enable internal
+    Synapse HTTP replication endpoints to use Unix sockets. This only is useful if you
+    have any workers declared(see *SYNAPSE_WORKER_TYPES* above).

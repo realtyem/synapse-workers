@@ -69,8 +69,13 @@ MAIN_PROCESS_HTTP_LISTENER_PORT = 8008
 MAIN_PROCESS_HTTP_FED_LISTENER_PORT = 8448
 MAIN_PROCESS_NEW_CLIENT_PORT = 8080
 MAIN_PROCESS_NEW_FEDERATION_PORT = 8081
+MAIN_PROCESS_NEW_HEALTH_PORT = 8082
 MAIN_PROCESS_NEW_REPLICATION_PORT = 9093
 MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT = 8060
+MAIN_PROCESS_NEW_CLIENT_UNIX_SOCKET_PATH = "/run/main_public.sock"
+MAIN_PROCESS_NEW_FEDERATION_UNIX_SOCKET_PATH = "/run/main_public.sock"
+MAIN_PROCESS_NEW_HEALTH_UNIX_SOCKET_PATH = "/run/main_health.sock"
+MAIN_PROCESS_NEW_REPLICATION_UNIX_SOCKET_PATH = "/run/main_replication.sock"
 enable_compressor = False
 enable_coturn = False
 enable_prometheus = False
@@ -316,9 +321,10 @@ NGINX_LOCATION_CONFIG_BLOCK = """
     }}
 """
 
+# Bump zone shared memory upto 512k from 64k
 NGINX_UPSTREAM_CONFIG_BLOCK = """
 upstream {upstream_name} {{
-    zone upstreams 64K;
+    zone upstreams 512K;
 {body}
     keepalive {keepalive_idle_connections};
 }}
@@ -627,7 +633,7 @@ class Workers:
     ) -> None:
         """
         Simple helper to add to the listener_port_map and increment the counter of port
-        numbers.
+        numbers. Will be borrowing the serialized incrementation for Unix Sockets also.
 
         Args:
             worker_name: Name of worker
@@ -708,7 +714,7 @@ class NginxConfig:
         # allows for better performance because of shared_mem usage for state
         # information on upstreams and by recycling open connections instead of
         # constantly creating and closing them. The connection pool is naturally
-        # quick large, but a given closed connection holds the file descriptors for 2
+        # quite large, but a given closed connection holds the file descriptors for 2
         # minutes before adding it back to the pool.
 
         # Uses data from
@@ -854,6 +860,7 @@ def add_worker_roles_to_shared_config(
     worker_type_list: list,
     worker_name: str,
     worker_ports: Dict[str, int],
+    use_unix_socket: bool = False,
 ) -> None:
     """Given a dictionary representing a config file shared across all workers,
     append appropriate worker information to it for the current worker_type instance.
@@ -866,6 +873,7 @@ def add_worker_roles_to_shared_config(
         worker_name: The name of the worker instance.
         worker_ports: The dict of ports to find the HTTP replication port that the
             worker instance is listening on.
+        use_unix_socket: If a socket path should be used instead of a host/port combo
     """
     # The instance_map config field marks the workers that write to various replication
     # streams
@@ -909,13 +917,18 @@ def add_worker_roles_to_shared_config(
             ).append(worker_name)
 
         if "replication" in worker_ports.keys():
-            # Map of worker instance names to host/ports combos. If a worker type in
-            # WORKERS_CONFIG needs to be added here in the future, just add a
+            # Map of worker instance names to path or host/ports combos. If a worker
+            # type in WORKERS_CONFIG needs to be added here in the future, just add a
             # 'replication' entry to the list in listener_resources for that worker.
-            instance_map[worker_name] = {
-                "host": "localhost",
-                "port": worker_ports["replication"],
-            }
+            if use_unix_socket:
+                instance_map[worker_name] = {
+                    "path": f"/run/worker.{worker_ports['replication']}",
+                }
+            else:
+                instance_map[worker_name] = {
+                    "host": "localhost",
+                    "port": worker_ports["replication"],
+                }
 
 
 def combine_shared_config_fragments(
@@ -952,13 +965,72 @@ def extract_port_number_from_original_listeners(
         if "http" in list_entry["type"]:
             for resource in list_entry["resources"]:
                 if listener_to_find in resource["names"]:
-                    debug(f"{listener_to_find} port found: {list_entry['port']}")
-                    port_to_return = list_entry["port"]
+                    if "port" in list_entry:
+                        debug(f"{listener_to_find} port found: {list_entry['port']}")
+                        port_to_return = list_entry["port"]
         if listener_to_find in list_entry["type"]:
             debug(f"{listener_to_find} port found: {list_entry['port']}")
             port_to_return = list_entry["port"]
 
     return port_to_return
+
+
+def extract_socket_path_from_original_listeners(
+    original_listeners_list: List[Any], listener_to_find: str
+) -> Optional[str]:
+    """
+    Iterate and return the socket path for a given listener from the original
+        configuration files.
+    Args:
+        original_listeners_list: The list after extraction from the existing config
+        listener_to_find: The name of the listener to track down. e.g. 'client'
+    Returns: str of the path found, None if not found
+    """
+    # The original_listeners_list is a list with each entry being a dict containing, at
+    # least, a 'type' and a 'port' and another list(resources) with potentially more
+    # than one dict again containing, at least, one or more 'names' as a list.
+    path_to_return = None
+    for list_entry in original_listeners_list:
+        if "http" in list_entry["type"]:
+            for resource in list_entry["resources"]:
+                if listener_to_find in resource["names"]:
+                    if "path" in list_entry:
+                        debug(f"{listener_to_find} path found: {list_entry['path']}")
+                        path_to_return = list_entry["path"]
+
+    return path_to_return
+
+
+def construct_worker_listener_block(
+    port_or_path_number: int,
+    listener_type_as_list: List[str],
+    use_socket: bool = False,
+    use_compress: bool = False,
+) -> Dict[str, str | List[Dict[str, List]]]:
+    """
+    Construct a JSON block for a worker listener, using either a path or a port. A port
+    assumes that 0.0.0.0 is the host to bind to. This is a much simplified version of a
+    listener compared to a regular listener.
+
+    Args:
+        port_or_path_number: This number is used either way, as an obvious port or to
+            individualize the worker socket file.
+        listener_type_as_list: The types of listener, e.g. 'client', 'federation' or
+            'replication'
+        use_socket: If True, set up as a Unix socket
+        use_compress: If True, enable compression for the listener
+    Return: A dict structure that translates into a JSON block and ends up being YAML
+    """
+    port_or_path_key = "path" if use_socket else "port"
+    port_or_path_value = (
+        f"/run/worker.{port_or_path_number}" if use_socket else port_or_path_number
+    )
+    this_listener = {
+        "type": "http",
+        port_or_path_key: port_or_path_value,
+        "resources": [{"names": listener_type_as_list, "compress": use_compress}],
+    }
+    return this_listener
 
 
 def generate_base_homeserver_config() -> None:
@@ -1005,6 +1077,10 @@ def generate_worker_files(
     enable_manhole_master = getenv_bool("SYNAPSE_MANHOLE_MASTER", False)
     enable_manhole_workers = getenv_bool("SYNAPSE_MANHOLE_WORKERS", False)
     enable_metrics = getenv_bool("SYNAPSE_METRICS", False)
+    enable_replication_unix_sockets = getenv_bool(
+        "SYNAPSE_HTTP_REPLICATION_UNIX_SOCKETS", False
+    )
+    enable_public_unix_sockets = getenv_bool("SYNAPSE_PUBLIC_UNIX_SOCKETS", False)
     enable_internal_redis = False
 
     # First read the original config file and extract the listeners block and a few
@@ -1016,6 +1092,9 @@ def generate_worker_files(
     original_client_listener_port = MAIN_PROCESS_HTTP_LISTENER_PORT
     original_federation_listener_port = MAIN_PROCESS_HTTP_LISTENER_PORT
     original_replication_listener_port = 0
+    original_client_listener_path = None
+    original_federation_listener_path = None
+    original_replication_listener_path = None
 
     with open(config_path) as file_stream:
         original_config = yaml.safe_load(file_stream)
@@ -1033,6 +1112,19 @@ def generate_worker_files(
             )
             original_replication_listener_port = (
                 extract_port_number_from_original_listeners(
+                    original_listeners, "replication"
+                )
+            )
+            original_client_listener_path = extract_socket_path_from_original_listeners(
+                original_listeners, "client"
+            )
+            original_federation_listener_path = (
+                extract_socket_path_from_original_listeners(
+                    original_listeners, "federation"
+                )
+            )
+            original_replication_listener_path = (
+                extract_socket_path_from_original_listeners(
                     original_listeners, "replication"
                 )
             )
@@ -1054,17 +1146,56 @@ def generate_worker_files(
                 "The original 'replication' listener port "
                 f"'{original_replication_listener_port}' is being ignored. At this "
                 "time, that is a security issue. 'Replication' listeners are only used "
-                "by the main process when workers are present."
+                "by the main process when workers are present. This will be overridden."
+            )
+        if original_replication_listener_path is not None:
+            log(
+                "The original 'replication' listener path "
+                f"'{original_replication_listener_path}' is being ignored. At this "
+                "time, that is a security issue. 'Replication' listeners are only used "
+                "by the main process when workers are present. This will be overridden"
             )
 
-        listeners = [
-            {
-                "port": MAIN_PROCESS_NEW_REPLICATION_PORT,
-                "bind_address": "127.0.0.1",
-                "type": "http",
-                "resources": [{"names": ["replication"]}],
-            }
-        ]
+        if enable_replication_unix_sockets:
+            listeners = [
+                {
+                    "path": MAIN_PROCESS_NEW_REPLICATION_UNIX_SOCKET_PATH,
+                    "type": "http",
+                    "resources": [{"names": ["replication"]}],
+                }
+            ]
+        else:
+            listeners = [
+                {
+                    "port": MAIN_PROCESS_NEW_REPLICATION_PORT,
+                    "bind_address": "127.0.0.1",
+                    "type": "http",
+                    "resources": [{"names": ["replication"]}],
+                }
+            ]
+
+        # Construct a separate health endpoint. If we are using unix sockets for other
+        # listeners seems prudent to use that here too. Since it is all self-contained
+        # in this image, it should be safe.
+        if enable_replication_unix_sockets or enable_public_unix_sockets:
+            new_health_listener = [
+                {
+                    "path": MAIN_PROCESS_NEW_HEALTH_UNIX_SOCKET_PATH,
+                    "type": "http",
+                    "resources": [{"names": ["health"]}],
+                }
+            ]
+        else:
+            new_health_listener = [
+                {
+                    "port": MAIN_PROCESS_NEW_HEALTH_PORT,
+                    "bind_address": "127.0.0.1",
+                    "type": "http",
+                    "resources": [{"names": ["health"]}],
+                }
+            ]
+
+        listeners += new_health_listener
 
         # So, at this point we have the original 'client' and 'federation' ports.
         # Ideally, they will be the same port as that is what most guides say to do for
@@ -1073,41 +1204,72 @@ def generate_worker_files(
         # of federation traffic.
         # Note: This is not recommended, and is not a performance enhancement.
         if original_client_listener_port == original_federation_listener_port:
-            new_main_listeners = [
-                {
-                    "port": MAIN_PROCESS_NEW_CLIENT_PORT,
-                    "bind_addresses": ["0.0.0.0"],
-                    "type": "http",
-                    "resources": [
-                        {"names": ["client", "federation"], "compress": True}
-                    ],
-                    "tls": False,
-                    "x_forwarded": True,
-                }
-            ]
+            if enable_public_unix_sockets:
+                new_main_listeners = [
+                    {
+                        "path": MAIN_PROCESS_NEW_CLIENT_UNIX_SOCKET_PATH,
+                        "type": "http",
+                        "resources": [
+                            {"names": ["client", "federation"], "compress": True}
+                        ],
+                        "tls": False,
+                        "x_forwarded": True,
+                    }
+                ]
+            else:
+                new_main_listeners = [
+                    {
+                        "port": MAIN_PROCESS_NEW_CLIENT_PORT,
+                        "bind_addresses": ["0.0.0.0"],
+                        "type": "http",
+                        "resources": [
+                            {"names": ["client", "federation"], "compress": True}
+                        ],
+                        "tls": False,
+                        "x_forwarded": True,
+                    }
+                ]
         else:
             # This was put in as an experimental option to have separated listeners,
             # instead of the default single listener with all the externally important
             # resources attached. It's not completely wired up yet. When finished,
             # declaring SYNAPSE_HTTP_FED_PORT will make it work.
-            new_main_listeners = [
-                {
-                    "port": MAIN_PROCESS_NEW_CLIENT_PORT,
-                    "bind_addresses": ["0.0.0.0"],
-                    "type": "http",
-                    "resources": [{"names": ["client"], "compress": True}],
-                    "tls": False,
-                    "x_forwarded": True,
-                },
-                {
-                    "port": MAIN_PROCESS_NEW_FEDERATION_PORT,
-                    "bind_addresses": ["0.0.0.0"],
-                    "type": "http",
-                    "resources": [{"names": ["federation"], "compress": True}],
-                    "tls": False,
-                    "x_forwarded": True,
-                },
-            ]
+            if enable_public_unix_sockets:
+                new_main_listeners = [
+                    {
+                        "path": MAIN_PROCESS_NEW_CLIENT_UNIX_SOCKET_PATH,
+                        "type": "http",
+                        "resources": [{"names": ["client"], "compress": True}],
+                        "tls": False,
+                        "x_forwarded": True,
+                    },
+                    {
+                        "port": MAIN_PROCESS_NEW_FEDERATION_UNIX_SOCKET_PATH,
+                        "type": "http",
+                        "resources": [{"names": ["federation"], "compress": True}],
+                        "tls": False,
+                        "x_forwarded": True,
+                    },
+                ]
+            else:
+                new_main_listeners = [
+                    {
+                        "port": MAIN_PROCESS_NEW_CLIENT_PORT,
+                        "bind_addresses": ["0.0.0.0"],
+                        "type": "http",
+                        "resources": [{"names": ["client"], "compress": True}],
+                        "tls": False,
+                        "x_forwarded": True,
+                    },
+                    {
+                        "port": MAIN_PROCESS_NEW_FEDERATION_PORT,
+                        "bind_addresses": ["0.0.0.0"],
+                        "type": "http",
+                        "resources": [{"names": ["federation"], "compress": True}],
+                        "tls": False,
+                        "x_forwarded": True,
+                    },
+                ]
 
         listeners += new_main_listeners
 
@@ -1245,7 +1407,15 @@ def generate_worker_files(
 
     # A list of internal endpoints to healthcheck, starting with the main process
     # which exists even if no workers do.
-    healthcheck_urls = ["http://localhost:8080/health"]
+    if enable_public_unix_sockets or enable_replication_unix_sockets:
+        healthcheck_urls = [
+            f"--unix-socket {MAIN_PROCESS_NEW_HEALTH_UNIX_SOCKET_PATH} "
+            # The scheme and hostname from the following URL are ignored.
+            # The only thing that matters is the path `/health`
+            "http://localhost/health"
+        ]
+    else:
+        healthcheck_urls = [f"http://localhost:{MAIN_PROCESS_NEW_HEALTH_PORT}/health"]
 
     # Expand worker_type multiples if requested in shorthand(e.g. worker:2). Checking
     # for not an actual defined type of worker is done later.
@@ -1315,11 +1485,21 @@ def generate_worker_files(
         for listener_entry in worker.listener_resources:
             workers.set_listener_port_by_resource(new_worker_name, listener_entry)
 
-        # Every worker gets a separate port to handle it's 'health' resource. Append it
-        # to the list so docker can check it.
-        healthcheck_urls.append(
-            f"http://localhost:{worker.listener_port_map['health']}/health"
-        )
+        # Every worker gets a separate port or socket path to handle it's 'health'
+        # resource. Append it to the list so docker can check it.
+        if enable_public_unix_sockets or enable_replication_unix_sockets:
+            # For the case of Unix Sockets, we can just use the port number to
+            # individualize the name of the file. We should never have to reference
+            # these sockets directly, as that is what Nginx is doing for us.
+            healthcheck_urls.append(
+                f"--unix-socket /run/worker.{worker.listener_port_map['health']} "
+                # Of the below URL, only the path is actually used, the rest is ignored.
+                "http://localhost/health"
+            )
+        else:
+            healthcheck_urls.append(
+                f"http://localhost:{worker.listener_port_map['health']}/health"
+            )
 
         # Prepare the bits that will be used in the worker.yaml file
         worker_config = worker.extract_jinja_worker_template()
@@ -1338,6 +1518,7 @@ def generate_worker_files(
             worker.types_list,
             new_worker_name,
             worker.listener_port_map,
+            use_unix_socket=enable_replication_unix_sockets,
         )
 
         # Enable the worker in supervisord. This is a list with the bastardized dict
@@ -1352,12 +1533,29 @@ def generate_worker_files(
         for listener in worker.listener_resources:
             this_listener: Dict[str, Any] = {}
             if listener in HTTP_BASED_LISTENER_RESOURCES:
-                this_listener = {
-                    "type": "http",
-                    "port": worker.listener_port_map[listener],
-                    # "resources": [{"names": [listener]}, {"compress": True}],
-                    "resources": [{"names": [listener]}],
-                }
+                binding_port_or_path = "port"
+                if enable_replication_unix_sockets and listener in ["replication"]:
+                    this_listener = construct_worker_listener_block(
+                        worker.listener_port_map[listener], [listener], True, False
+                    )
+                elif enable_public_unix_sockets and listener in [
+                    "client",
+                    "federation",
+                    "media",
+                ]:
+                    this_listener = construct_worker_listener_block(
+                        worker.listener_port_map[listener], [listener], True, True
+                    )
+                elif (
+                    enable_public_unix_sockets or enable_replication_unix_sockets
+                ) and listener in ["health"]:
+                    this_listener = construct_worker_listener_block(
+                        worker.listener_port_map[listener], [listener], True, False
+                    )
+                else:
+                    this_listener = construct_worker_listener_block(
+                        worker.listener_port_map[listener], [listener], False, False
+                    )
             # The 'metrics' and 'manhole' listeners don't use 'http' as their type.
             elif listener in ["metrics", "manhole"]:
                 this_listener = {
@@ -1401,7 +1599,6 @@ def generate_worker_files(
 
     for upstream_name, upstream_worker_ports in nginx.upstreams_to_ports.items():
         body = ""
-        # upstream_worker_ports = nginx.upstreams_to_ports.get(upstream_name)
         roles_list = nginx.upstreams_roles[upstream_name]
 
         # This presents a dilemma. Some endpoints are better load-balanced by
@@ -1440,9 +1637,13 @@ def generate_worker_files(
         elif any(x in roles_lb_header_list for x in roles_list):
             body += "    hash $http_authorization consistent;\n"
 
-        # Add specific "hosts" by port number to the upstream block.
+        # Add specific "hosts" by port number to the upstream block. In the case of Unix
+        # sockets, borrow the port number to individualize the socket files.
         for port in upstream_worker_ports:
-            body += f"    server localhost:{port};\n"
+            if enable_public_unix_sockets:
+                body += f"    server unix:/run/worker.{port};\n"
+            else:
+                body += f"    server localhost:{port};\n"
 
         # Need this to determine keepalive argument, need multiple of 2. Double the
         # number, as each connection to an upstream actually has two sockets. Then apply
@@ -1485,7 +1686,12 @@ def generate_worker_files(
     if workers_in_use:
         # Add 'main' to the instance_map if using workers
         instance_map = shared_config.setdefault("instance_map", {})
-        instance_map["main"] = {
+        if enable_replication_unix_sockets:
+            instance_map["main"] = {
+                "path": MAIN_PROCESS_NEW_REPLICATION_UNIX_SOCKET_PATH,
+            }
+        else:
+            instance_map["main"] = {
                 "host": "localhost",
                 "port": MAIN_PROCESS_NEW_REPLICATION_PORT,
             }
@@ -1503,16 +1709,37 @@ def generate_worker_files(
         enable_internal_redis=enable_internal_redis,
     )
 
+    # For the main listening entrypoint that is a unix socket, this may be declared in
+    # the existing homeserver.yaml or it may be declared as an environmental variable.
+    # If both exist, the environmental variable takes precedence. Both of these can be
+    # None, which will be handled inside the nginx template itself.
+    # TODO: handle the case where both 'client' and 'federation' listeners are separated
+    #  and not on a single listener. This is part of the experimental dual listener
+    #  setup.
+    main_entry_point_unix_socket = os.environ.get("NGINX_LISTEN_UNIX_SOCKET", None)
+    if main_entry_point_unix_socket is None or main_entry_point_unix_socket == "":
+        debug(
+            "Did not find unix socket for Nginx in ENV, setting unix socket from file "
+            "if found there."
+        )
+        main_entry_point_unix_socket = original_client_listener_path
+
+    debug(f"main_entry_point_unix_socket: {main_entry_point_unix_socket}")
+
     # Nginx config
     convert(
         "/conf/nginx.conf.j2",
         "/etc/nginx/conf.d/matrix-synapse.conf",
         worker_locations=nginx_location_config,
         upstream_directives=nginx_upstream_config,
+        main_entry_point_unix_socket=main_entry_point_unix_socket,
         tls_cert_path=os.environ.get("SYNAPSE_TLS_CERT"),
         tls_key_path=os.environ.get("SYNAPSE_TLS_KEY"),
+        enable_proxy_to_unix_socket=enable_public_unix_sockets,
         original_federation_listener_port=original_federation_listener_port,
         original_client_listener_port=original_client_listener_port,
+        original_client_listener_path=original_client_listener_path,
+        original_federation_listener_path=original_federation_listener_path,
         main_proxy_pass_cli_port=MAIN_PROCESS_NEW_CLIENT_PORT,
         # Part of the SYNAPSE_HTTP_FED_PORT experiment. Empty is ok here.
         main_proxy_pass_fed_port=MAIN_PROCESS_NEW_FEDERATION_PORT,
@@ -1532,7 +1759,9 @@ def generate_worker_files(
             "/conf/prometheus.yml.j2",
             "/etc/prometheus/prometheus.yml",
             metric_endpoint_locations=prom_endpoint_config,
-            metric_scrape_interval=os.environ.get("SYNAPSE_METRICS_SCRAPE_INTERVAL", "15s")
+            metric_scrape_interval=os.environ.get(
+                "SYNAPSE_METRICS_SCRAPE_INTERVAL", "15s"
+            ),
         )
 
     # Supervisord config

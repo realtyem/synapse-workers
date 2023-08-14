@@ -5,9 +5,18 @@
 log_format backend '[$time_local] - $proxy_add_x_forwarded_for - URT:$upstream_response_time request_time $request_time $status $upstream_addr: $request';
 
 upstream main_synapse_process {
-    zone upstreams 64K;
+    # Several theoretical optimizations are in this block(and subsequently in the
+    # procedurally generated ones as well).
+    # zone *shared_memory_zone_name* *size*
+    # https://nginx.org/en/docs/http/ngx_http_upstream_module.html#zone
+    # keepalive *number*
+    # https://nginx.org/en/docs/http/ngx_http_upstream_module.html#keepalive
+    zone upstreams 512K;
+{% if enable_proxy_to_unix_socket %}
+    server unix:/run/main_public.sock;
+{% else %}
     server localhost:{{ main_proxy_pass_cli_port }};
-
+{% endif %}
     keepalive 2;
 }
 
@@ -19,7 +28,9 @@ server {
     # have to change any ports set up in your docker image
     listen {{ original_client_listener_port or '8008' }};
     listen [::]:{{ original_client_listener_port or '8008' }};
-
+{%- if main_entry_point_unix_socket is not none %}
+    listen unix:{{ main_entry_point_unix_socket }};
+{% endif -%}
 {% if tls_cert_path is not none and tls_key_path is not none %}
     # this allows for:
     # 1. Piping in a federation port directly if you have TlS certs in place. This is
@@ -49,12 +60,13 @@ server {
 
     # Nginx by default only allows file uploads up to 1M in size
     # Increase client_max_body_size to match max_upload_size defined in homeserver.yaml
-    client_max_body_size 100M;
+    client_max_body_size 0;
 
     # Synapse chunks responses according to the docs. We also want to use the keepalive
     # feature, so we need both of these globally.
     proxy_http_version 1.1;
     proxy_set_header "Connection" "";
+    proxy_socket_keepalive on;
 
 {{ worker_locations }}
 
