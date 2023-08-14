@@ -965,8 +965,9 @@ def extract_port_number_from_original_listeners(
         if "http" in list_entry["type"]:
             for resource in list_entry["resources"]:
                 if listener_to_find in resource["names"]:
-                    debug(f"{listener_to_find} port found: {list_entry['port']}")
-                    port_to_return = list_entry["port"]
+                    if "port" in list_entry:
+                        debug(f"{listener_to_find} port found: {list_entry['port']}")
+                        port_to_return = list_entry["port"]
         if listener_to_find in list_entry["type"]:
             debug(f"{listener_to_find} port found: {list_entry['port']}")
             port_to_return = list_entry["port"]
@@ -993,11 +994,9 @@ def extract_socket_path_from_original_listeners(
         if "http" in list_entry["type"]:
             for resource in list_entry["resources"]:
                 if listener_to_find in resource["names"]:
-                    debug(f"{listener_to_find} path found: {list_entry['path']}")
-                    path_to_return = list_entry["path"]
-        if listener_to_find in list_entry["type"]:
-            debug(f"{listener_to_find} path found: {list_entry['path']}")
-            path_to_return = list_entry["path"]
+                    if "path" in list_entry:
+                        debug(f"{listener_to_find} path found: {list_entry['path']}")
+                        path_to_return = list_entry["path"]
 
     return path_to_return
 
@@ -1681,9 +1680,6 @@ def generate_worker_files(
     debug("nginx.upstreams_to_ports: " + str(nginx.upstreams_to_ports))
     debug("nginx_upstream_config: " + str(nginx_upstream_config))
     debug("global shared_config: " + json.dumps(shared_config, indent=4))
-    debug(
-        "nginx_listen_unix_socket: " + str(os.environ.get("NGINX_LISTEN_UNIX_SOCKET"))
-    )
     # One last thing to fixup for the shared.yaml file, redis.
     workers_in_use = len(worker_types) > 0
     # If using workers, we need redis
@@ -1720,9 +1716,16 @@ def generate_worker_files(
     # TODO: handle the case where both 'client' and 'federation' listeners are separated
     #  and not on a single listener. This is part of the experimental dual listener
     #  setup.
-    main_entry_point_unix_socket = os.environ.get("NGINX_LISTEN_UNIX_SOCKET")
-    if main_entry_point_unix_socket is None:
+    main_entry_point_unix_socket = os.environ.get("NGINX_LISTEN_UNIX_SOCKET", None)
+    if main_entry_point_unix_socket is None or main_entry_point_unix_socket == "":
+        debug(
+            "Did not find unix socket for Nginx in ENV, setting unix socket from file "
+            "if found there."
+        )
         main_entry_point_unix_socket = original_client_listener_path
+
+    debug(f"main_entry_point_unix_socket: {main_entry_point_unix_socket}")
+
     # Nginx config
     convert(
         "/conf/nginx.conf.j2",
