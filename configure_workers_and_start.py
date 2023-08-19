@@ -307,6 +307,7 @@ HTTP_BASED_LISTENER_RESOURCES = [
     "client",
     "federation",
     "media",
+    "metrics",
     "replication",
 ]
 
@@ -1289,8 +1290,8 @@ def generate_worker_files(
             {
                 "port": MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT,
                 "bind_address": "0.0.0.0",
-                "type": "metrics",
-                "resources": [{"compress": True}],
+                "type": "http",
+                "resources": [{"names": ["metrics"], "compress": True}],
             }
         ]
         listeners += metric_listener
@@ -1533,7 +1534,6 @@ def generate_worker_files(
         for listener in worker.listener_resources:
             this_listener: Dict[str, Any] = {}
             if listener in HTTP_BASED_LISTENER_RESOURCES:
-                binding_port_or_path = "port"
                 if enable_replication_unix_sockets and listener in ["replication"]:
                     this_listener = construct_worker_listener_block(
                         worker.listener_port_map[listener], [listener], True, False
@@ -1553,11 +1553,12 @@ def generate_worker_files(
                         worker.listener_port_map[listener], [listener], True, False
                     )
                 else:
+                    # This should only be for metrics, as manhole is its own type
                     this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener], [listener], False, False
+                        worker.listener_port_map[listener], [listener], False, True
                     )
-            # The 'metrics' and 'manhole' listeners don't use 'http' as their type.
-            elif listener in ["metrics", "manhole"]:
+            # The 'manhole' listener doesn't use 'http' as its type.
+            elif listener in ["manhole"]:
                 this_listener = {
                     "type": listener,
                     "port": worker.listener_port_map[listener],
