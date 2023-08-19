@@ -26,8 +26,8 @@ A few things make this container great:
  dynamically. As a worker that has no traffic directed at it is useless, this takes 
  care of the details. You will still need an external reverse proxy to handle the TLS 
  encryption(if you are using Unraid, swag is excellent at this).
-4. Support for metrics. If you like to look at pretty graphs in Grafana, this is 
- prometheus ready.
+4. Support for metrics. If you like to look at pretty graphs in Grafana, this has
+ Prometheus built-in(must be enabled, see below).
 ## Setup
 ### Pre-existing configuration
 Moving an existing instance of your homeserver from the normal docker image to this one
@@ -68,7 +68,7 @@ allow for easier regeneration of main configuration.
   database. The only actually required Postgres variable with no defaults.
 * *SYNAPSE_WORKERS_WRITE_LOGS_TO_DISK*: 1 or 0
 * *SYNAPSE_LOG_LEVEL*: ERROR, WARNING, INFO, DEBUG. INFO is default
-* SYNAPSE_METRICS: 'yes', '1', 'true', or 'on'. Anything else is a 'no'
+* *SYNAPSE_METRICS*: 'yes', '1', 'true', or 'on'. Anything else is a 'no'
 
 Not required to set as the defaults are good. Only accessed on first generate of main config, ignored otherwise.
 * *SYNAPSE_CONFIG_DIR* and *SYNAPSE_DATA_DIR*: /data is the default. Both point to 
@@ -109,8 +109,12 @@ Paths to map to somewhere as volumes
 ### Additions
 Anything in this section can be enabled by giving it a value of  'yes', 'y', '1', 'true', 't', 
 or 'on'. Anything else is a 'no'
-* *SYNAPSE_METRICS*: This will enable the builtin prometheus service and add the necessary bits 
- to Synapse to expose metrics.
+* *SYNAPSE_METRICS*: This not only is part of the generation of the initial homeserver.yaml file,
+  but will also enable the builtin prometheus service and add the necessary bits
+  to Synapse to expose metrics.
+* *SYNAPSE_METRICS_UNIX_SOCKETS*: Enable Unix socket scraping support. **IMPORTANT NOTE**:
+  this does not currently work as Prometheus does not support scraping a Unix socket for
+  general scraping. See [issue](github.com/prometheus/prometheus/issues/12024) for details.
 * *SYNAPSE_ENABLE_REDIS_METRIC_EXPORT*: Redis is built into the docker image. It will 
  automatically be used whenever a worker or multiple workers are declared. This enables 
  exporting Redis metrics to the built-in Prometheus service. SYNAPSE_METRICS is required.
@@ -144,3 +148,6 @@ Grafana dashboards are provided in the contrib directory of the source repo.<br>
   * *SYNAPSE_HTTP_REPLICATION_UNIX_SOCKETS*: set to anything(1 is fine) to enable internal
     Synapse HTTP replication endpoints to use Unix sockets. This only is useful if you
     have any workers declared(see *SYNAPSE_WORKER_TYPES* above).
+* *PROMETHEUS_SCRAPE_INTERVAL*: Defaults to 15 seconds, allows the built-in Prometheus
+  scrape interval to be changed. This will be set to the global `scrape_interval` as well
+  as the one for the Synapse job.
