@@ -76,6 +76,7 @@ MAIN_PROCESS_NEW_CLIENT_UNIX_SOCKET_PATH = "/run/main_public.sock"
 MAIN_PROCESS_NEW_FEDERATION_UNIX_SOCKET_PATH = "/run/main_public.sock"
 MAIN_PROCESS_NEW_HEALTH_UNIX_SOCKET_PATH = "/run/main_health.sock"
 MAIN_PROCESS_NEW_REPLICATION_UNIX_SOCKET_PATH = "/run/main_replication.sock"
+MAIN_PROCESS_NEW_METRICS_UNIX_SOCKET_PATH = "/run/main_metrics.sock"
 enable_compressor = False
 enable_coturn = False
 enable_prometheus = False
@@ -331,7 +332,7 @@ upstream {upstream_name} {{
 """
 
 PROMETHEUS_SCRAPE_CONFIG_BLOCK = """
-    - targets: ["127.0.0.1:{metrics_port}"]
+    - targets: ["{metrics_target}"]
       labels:
         instance: "Synapse"
         job: "{name}"
@@ -1077,6 +1078,7 @@ def generate_worker_files(
     enable_manhole_master = getenv_bool("SYNAPSE_MANHOLE_MASTER", False)
     enable_manhole_workers = getenv_bool("SYNAPSE_MANHOLE_WORKERS", False)
     enable_metrics = getenv_bool("SYNAPSE_METRICS", False)
+    enable_metrics_unix_socket = getenv_bool("SYNAPSE_METRICS_UNIX_SOCKETS", False)
     enable_replication_unix_sockets = getenv_bool(
         "SYNAPSE_HTTP_REPLICATION_UNIX_SOCKETS", False
     )
@@ -1282,17 +1284,26 @@ def generate_worker_files(
             # use it as-is. As such, we do nothing here but log it.
             log("External Redis installation found by declaration in homeserver.yaml")
 
-    # If metrics is enabled, and the listener block got overwritten, will need to inject
+    # If metrics is enabled, and the listener block got overridden, will need to inject
     # that back in.
     if enable_metrics:
-        metric_listener = [
-            {
-                "port": MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT,
-                "bind_address": "0.0.0.0",
-                "type": "metrics",
-                "resources": [{"compress": True}],
-            }
-        ]
+        if enable_metrics_unix_socket:
+            metric_listener = [
+                {
+                    "path": MAIN_PROCESS_NEW_METRICS_UNIX_SOCKET_PATH,
+                    "type": "http",
+                    "resources": [{"names": ["metrics"], "compress": True}],
+                }
+            ]
+        else:
+            metric_listener = [
+                {
+                    "port": MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT,
+                    "bind_address": "0.0.0.0",
+                    "type": "metrics",
+                    "resources": [{"compress": True}],
+                }
+            ]
         listeners += metric_listener
 
     # Only activate the manhole if the environment says to do so. SYNAPSE_MANHOLE_MASTER
@@ -1533,31 +1544,60 @@ def generate_worker_files(
         for listener in worker.listener_resources:
             this_listener: Dict[str, Any] = {}
             if listener in HTTP_BASED_LISTENER_RESOURCES:
-                binding_port_or_path = "port"
-                if enable_replication_unix_sockets and listener in ["replication"]:
+                if listener in ["replication"]:
                     this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener], [listener], True, False
+                        worker.listener_port_map[listener],
+                        [listener],
+                        enable_replication_unix_sockets,
+                        False,
                     )
-                elif enable_public_unix_sockets and listener in [
+                elif listener in [
                     "client",
                     "federation",
                     "media",
                 ]:
                     this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener], [listener], True, True
+                        worker.listener_port_map[listener],
+                        [listener],
+                        enable_public_unix_sockets,
+                        True,
                     )
-                elif (
-                    enable_public_unix_sockets or enable_replication_unix_sockets
-                ) and listener in ["health"]:
+                elif listener in ["health"]:
                     this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener], [listener], True, False
+                        worker.listener_port_map[listener],
+                        [listener],
+                        (enable_public_unix_sockets or enable_replication_unix_sockets),
+                        False,
                     )
                 else:
+                    # This should be dead code now
                     this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener], [listener], False, False
+                        worker.listener_port_map[listener], [listener], False, True
                     )
-            # The 'metrics' and 'manhole' listeners don't use 'http' as their type.
-            elif listener in ["metrics", "manhole"]:
+            elif listener in ["metrics"]:
+                # Metrics listeners are a strange sort, supporting both 'http' and a
+                # custom 'metrics' type. The 'http' type allows for compression and unix
+                # sockets, but at the expense of utiltizing the reactor to generate
+                # results(causing a delay in response).
+                # However, using the custom 'metrics' type allows a side-loaded
+                # webserver to handle the load of generating results, allowing for a
+                # much snappier response time. Unless we are trying to use Unix sockets,
+                # just use the custom type.
+                # Note: at this time, Prometheus does not support Unix sockets.
+                if enable_metrics_unix_socket:
+                    this_listener = construct_worker_listener_block(
+                        worker.listener_port_map[listener],
+                        [listener],
+                        enable_metrics_unix_socket,
+                        True,
+                    )
+                else:
+                    this_listener = {
+                        "type": listener,
+                        "port": worker.listener_port_map[listener],
+                    }
+            # The 'manhole' listener doesn't use 'http' as its type.
+            elif listener in ["manhole"]:
                 this_listener = {
                     "type": listener,
                     "port": worker.listener_port_map[listener],
@@ -1750,18 +1790,28 @@ def generate_worker_files(
     if enable_prometheus:
         prom_endpoint_config = ""
         for _, worker in workers.worker.items():
+            worker_portpath_target_number = worker.listener_port_map["metrics"]
+            metrics_target = (
+                f"/run/worker.{worker_portpath_target_number}"
+                if enable_metrics_unix_socket
+                else f"127.0.0.1:{worker_portpath_target_number}"
+            )
             prom_endpoint_config += PROMETHEUS_SCRAPE_CONFIG_BLOCK.format(
                 name=worker.base_name,
-                metrics_port=str(worker.listener_port_map["metrics"]),
+                metrics_target=metrics_target,
                 index=str(worker.index),
             )
+        main_process_target = (
+            f"{MAIN_PROCESS_NEW_METRICS_UNIX_SOCKET_PATH}"
+            if enable_metrics_unix_socket
+            else f"localhost:{MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT}"
+        )
         convert(
             "/conf/prometheus.yml.j2",
             "/etc/prometheus/prometheus.yml",
+            main_process_target=main_process_target,
             metric_endpoint_locations=prom_endpoint_config,
-            metric_scrape_interval=os.environ.get(
-                "SYNAPSE_METRICS_SCRAPE_INTERVAL", "15s"
-            ),
+            metric_scrape_interval=os.environ.get("PROMETHEUS_SCRAPE_INTERVAL", "15s"),
         )
 
     # Supervisord config

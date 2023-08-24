@@ -26,9 +26,9 @@ scrape_configs:
     scrape_interval: {{ metric_scrape_interval }}
     metrics_path: "/_synapse/metrics"
     static_configs:
-    - targets: ["localhost:8060"]
+    - targets: ["{{ main_process_target}}"]
       labels:
         instance: "Synapse"
-        job: "Main Homeserver"
+        job: "main_process"
         index: 1
 {{ metric_endpoint_locations }}

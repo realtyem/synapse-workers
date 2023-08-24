@@ -128,6 +128,8 @@ RUN rm /etc/nginx/sites-enabled/default
 # Copy over Prometheus. Should we bring the website files. It's 10's of MB's
 COPY --from=deps_base /usr/bin/prometheus /usr/bin
 COPY --from=deps_base /usr/share/prometheus/* /usr/share/prometheus
+# And Synapse's Prometheus rule file
+COPY /contrib/prometheus/synapse-V2.rules /etc/prometheus
 
 COPY --from=tools /out /
 
