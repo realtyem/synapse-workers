@@ -1767,7 +1767,20 @@ def generate_worker_files(
 
     debug(f"main_entry_point_unix_socket: {main_entry_point_unix_socket}")
 
-    # Nginx config
+    # Main Nginx configuration
+    # events[""]
+    nginx_file_config_dict: Dict[str, Any] = {
+        "worker_connections": os.environ.get("NGINX_WORKER_CONNECTIONS", 2048),
+    }
+
+    convert(
+        "/conf/nginx.conf.j2",
+        "/etc/nginx/nginx.conf",
+        mode="w",
+        config=nginx_file_config_dict,
+    )
+
+    # Nginx location config for Synapse
     convert(
         "/conf/synapse-nginx.conf.j2",
         "/etc/nginx/conf.d/matrix-synapse.conf",

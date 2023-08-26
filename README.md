@@ -151,3 +151,11 @@ Grafana dashboards are provided in the contrib directory of the source repo.<br>
 * *PROMETHEUS_SCRAPE_INTERVAL*: Defaults to 15 seconds, allows the built-in Prometheus
   scrape interval to be changed. This will be set to the global `scrape_interval` as well
   as the one for the Synapse job.
+
+
+## Nginx configuration
+The built-in reverse proxy has defaults that are sane for a generic webserver/remote
+proxy. This is not optimized for Synapse. We can do better.
+* *NGINX_WORKER_CONNECTIONS*: Number of simultaneous connections(client, remote server
+  and Synapse workers/main process) per Nginx worker. Compilation default is 512. New
+  default is 2048.

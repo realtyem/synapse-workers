@@ -9,8 +9,8 @@ events {
     # Each nginx worker is allowed to accept this many connections. This is the maximum
     # number of simultaneous connections, both inbound and outbound(so both client and
     # proxied server). This number can be fairly high, but watch your file descriptor
-	worker_connections 768;
     # limit(setting worker_rlimit_nofile). Default is 512, original file default 768
+    worker_connections {{ events.worker_connections }};
 
     # The distribution of this image is for Linux, so the epoll connection processing
     # method is used by default.
