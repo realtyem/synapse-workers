@@ -1768,7 +1768,7 @@ def generate_worker_files(
 
     # Nginx config
     convert(
-        "/conf/nginx.conf.j2",
+        "/conf/synapse-nginx.conf.j2",
         "/etc/nginx/conf.d/matrix-synapse.conf",
         worker_locations=nginx_location_config,
         upstream_directives=nginx_upstream_config,
