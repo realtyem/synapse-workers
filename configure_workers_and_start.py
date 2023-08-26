@@ -823,12 +823,13 @@ def flush_buffers() -> None:
     sys.stderr.flush()
 
 
-def convert(src: str, dst: str, **template_vars: object) -> None:
+def convert(src: str, dst: str, mode: str = "a", **template_vars: object) -> None:
     """Generate a file from a template
 
     Args:
         src: Path to the input file.
         dst: Path to write to.
+        mode: "a" to append a file, "w" to wipe and write a file. See open docstring.
         template_vars: The arguments to replace placeholder variables in the template
             with.
     """
@@ -845,7 +846,7 @@ def convert(src: str, dst: str, **template_vars: object) -> None:
     #
     # We use append mode in case the files have already been written to by something
     # else (for instance, as part of the instructions in a dockerfile).
-    with open(dst, "a") as outfile:
+    with open(dst, mode) as outfile:
         # In case the existing file doesn't end with a newline
         outfile.write("\n")
 
