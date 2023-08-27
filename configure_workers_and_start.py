@@ -1768,9 +1768,9 @@ def generate_worker_files(
     debug(f"main_entry_point_unix_socket: {main_entry_point_unix_socket}")
 
     # Main Nginx configuration
-    # events[""]
     nginx_file_config_dict: Dict[str, Any] = {
         "worker_connections": os.environ.get("NGINX_WORKER_CONNECTIONS", 2048),
+        "worker_processes": os.environ.get("NGINX_WORKER_PROCESSES", "auto"),
     }
 
     convert(

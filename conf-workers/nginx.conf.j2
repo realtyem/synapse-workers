@@ -1,7 +1,7 @@
 user www-data;
 # worker_processes is set to auto to automatically detect the number of processors. This
 # will influence the number of workers nginx will start.
-worker_processes auto;
+worker_processes {{ config.worker_processes }};
 pid /run/nginx.pid;
 include /etc/nginx/modules-enabled/*.conf;
 
@@ -10,7 +10,7 @@ events {
     # number of simultaneous connections, both inbound and outbound(so both client and
     # proxied server). This number can be fairly high, but watch your file descriptor
     # limit(setting worker_rlimit_nofile). Default is 512, original file default 768
-    worker_connections {{ events.worker_connections }};
+    worker_connections {{ config.worker_connections }};
 
     # The distribution of this image is for Linux, so the epoll connection processing
     # method is used by default.
