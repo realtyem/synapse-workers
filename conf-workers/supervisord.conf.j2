@@ -11,9 +11,9 @@ files = /etc/supervisor/conf.d/*.conf
 [program:nginx]
 command=/usr/local/bin/prefix-log /usr/sbin/nginx -g "daemon off;"
 priority=500
-stdout_logfile=/dev/stdout
+stdout_logfile=/var/log/nginx/stdout.log
 stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
+stderr_logfile=/var/log/nginx/stderr.log
 stderr_logfile_maxbytes=0
 username=www-data
 autorestart=true

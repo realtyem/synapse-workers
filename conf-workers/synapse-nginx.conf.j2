@@ -54,9 +54,8 @@ server {
 
     server_name localhost;
 
-    # access_log /data/logs/synapse.log backend;
-    access_log /dev/stdout backend;
-    error_log stderr warn;
+    access_log /var/log/nginx/synapse.log backend;
+    error_log /var/log/nginx/error.log warn;
 
     # Nginx by default only allows file uploads up to 1M in size
     # Increase client_max_body_size to match max_upload_size defined in homeserver.yaml
