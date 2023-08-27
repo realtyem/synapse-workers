@@ -22,6 +22,11 @@ scrape_configs:
     - targets: ["localhost:9641"]
       labels:
         instance: "Synapse-Coturn"
+  - job_name: nginx_exporter
+    static_configs:
+    - targets: ["localhost:9113"]
+      labels:
+        instance: "Synapse-Nginx"
   - job_name: "synapse"
     scrape_interval: {{ metric_scrape_interval }}
     metrics_path: "/_synapse/metrics"
