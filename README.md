@@ -110,8 +110,8 @@ Paths to map to somewhere as volumes
 Anything in this section can be enabled by giving it a value of  'yes', 'y', '1', 'true', 't', 
 or 'on'. Anything else is a 'no'
 * *SYNAPSE_METRICS*: This not only is part of the generation of the initial homeserver.yaml file,
-  but will also enable the builtin prometheus service and add the necessary bits
-  to Synapse to expose metrics.
+  but will also enable the builtin prometheus service, enable collection of Nginx metrics
+  and add the necessary bits to Synapse to expose metrics.
 * *SYNAPSE_METRICS_UNIX_SOCKETS*: Enable Unix socket scraping support. **IMPORTANT NOTE**:
   this does not currently work as Prometheus does not support scraping a Unix socket for
   general scraping. See [issue](github.com/prometheus/prometheus/issues/12024) for details.
