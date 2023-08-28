@@ -27,6 +27,11 @@ scrape_configs:
     - targets: ["localhost:9113"]
       labels:
         instance: "Synapse-Nginx"
+  - job_name: nginx_log_exporter
+    static_configs:
+    - targets: ["localhost:9112"]
+      labels:
+        instance: "Synapse-Nginx-Logs"
   - job_name: "synapse"
     scrape_interval: {{ metric_scrape_interval }}
     metrics_path: "/_synapse/metrics"

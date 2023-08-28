@@ -64,6 +64,16 @@ username=www-data
 autorestart=unexpected
 autostart={{ enable_prometheus }}
 
+[program:nginx_log_exporter]
+command=/usr/local/bin/prefix-log /usr/local/bin/mtail -v=2 -logtostderr -port 9112 -progs /conf/mtail -logs /var/log/nginx/access.log
+priority=500
+stdout_logfile=/var/log/mtail_stdout.log
+stdout_logfile_maxbytes=0
+stderr_logfile=/var/log/mtail_stderr.log
+stderr_logfile_maxbytes=0
+username=www-data
+autorestart=unexpected
+autostart={{ enable_prometheus }}
 
 [program:prometheus]
 command=/usr/local/bin/prefix-log /usr/bin/prometheus --web.listen-address="0.0.0.0:9090" --config.file="/etc/prometheus/prometheus.yml" --storage.tsdb.retention.time=1y --storage.tsdb.wal-compression  --storage.remote.read-sample-limit=0  --storage.remote.read-concurrent-limit=0 --query.max-concurrency=9999

@@ -131,7 +131,7 @@ COPY --from=deps_base /usr/bin/prometheus /usr/bin
 COPY --from=deps_base /usr/share/prometheus/* /usr/share/prometheus
 # And Synapse's Prometheus rule file
 COPY /contrib/prometheus/synapse-V2.rules /etc/prometheus
-COPY /contrib/mtail /conf
+COPY /contrib/mtail/ /conf/mtail/
 
 COPY --from=tools /out /
 
