@@ -5,6 +5,10 @@ worker_processes {{ config.worker_processes }};
 pid /run/nginx.pid;
 include /etc/nginx/modules-enabled/*.conf;
 
+# Enable regex precompilation. Any regex in the location blocks that isn't to broad(like
+# .*) will be optimized instead of being re-evaluated on each request.
+pcre_jit on;
+
 events {
     # Each nginx worker is allowed to accept this many connections. This is the maximum
     # number of simultaneous connections, both inbound and outbound(so both client and
@@ -61,13 +65,19 @@ http {
     ##
 
     gzip on;
-
-    # gzip_vary on;
-    # gzip_proxied any;
-    # gzip_comp_level 6;
-    # gzip_buffers 16 8k;
-    # gzip_http_version 1.1;
-    # gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+    gzip_vary on;
+    # gzip any response(of gzip_types below)
+    gzip_proxied any;
+    # gzip compression level by default is 1, allow override to higher(max 9)
+    gzip_comp_level {{ config.gzip_comp_level }};
+    # gzip_buffers defaults to 32 buffers at 4k size
+    gzip_buffers 16 8k;
+    # gzip_http_version defaults to 1.1 and up, optionally lower it
+    gzip_http_version {{ config.gzip_http_version }};
+    # gzip_types defaults to only text/html, enable more
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+    # Don't bother compressing a response if the header says the "Content-Length" is less than:
+    gzip_min_length {{ config.gzip_min_length }};
 
     ##
     # Virtual Host Configs

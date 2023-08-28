@@ -1771,6 +1771,9 @@ def generate_worker_files(
     nginx_file_config_dict: Dict[str, Any] = {
         "worker_connections": os.environ.get("NGINX_WORKER_CONNECTIONS", 2048),
         "worker_processes": os.environ.get("NGINX_WORKER_PROCESSES", "auto"),
+        "gzip_comp_level": os.environ.get("NGINX_GZIP_COMP_LEVEL", 1),
+        "gzip_http_version": os.environ.get("NGINX_GZIP_HTTP_VERSION", 1.1),
+        "gzip_min_length": os.environ.get("NGINX_GZIP_MIN_LENGTH", 200),
     }
 
     convert(

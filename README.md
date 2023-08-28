@@ -161,3 +161,11 @@ proxy. This is not optimized for Synapse. We can do better.
 * *NGINX_WORKER_CONNECTIONS*: Number of simultaneous connections(client, remote server
   and Synapse workers/main process) per Nginx worker. Compilation default is 512. New
   default is 2048.
+* *NGINX_GZIP_COMP_LEVEL*: The compression level of responses. Default is 1. Higher is
+  more compressed at the expense of more CPU used. Tradeoffs above 1 didn't seem worth
+  the additional CPU.
+* *NGINX_GZIP_HTTP_VERSION*: Normally, Nginx will only serve a gzipped response if the
+  HTTP version is 1.1 or higher. This allows lowering that threshold. Defaults to 1.1
+* *NGINX_GZIP_MIN_LENGTH*: If a response is smaller than this(in bytes), just send it.
+  Normal default is 20, which is really tiny and a waste of time to try and compress.
+  New default is 200, but could probably put this at a MTU frame size for efficiency.
