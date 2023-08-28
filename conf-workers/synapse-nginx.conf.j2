@@ -4,6 +4,10 @@
 
 log_format backend '[$time_local] - $proxy_add_x_forwarded_for - URT:$upstream_response_time request_time $request_time $status $upstream_addr: $request';
 
+log_format mtail '$host $remote_addr - $remote_user [$time_local] '
+                 '"$request" $status $body_bytes_sent $request_time '
+                 '"$http_referer" "$http_user_agent" "$content_type"';
+
 upstream main_synapse_process {
     # Several theoretical optimizations are in this block(and subsequently in the
     # procedurally generated ones as well).
@@ -55,6 +59,7 @@ server {
     server_name localhost;
 
     access_log /var/log/nginx/synapse.log backend;
+    access_log /var/log/nginx/access.log mtail;
     error_log /var/log/nginx/error.log warn;
 
     # Nginx by default only allows file uploads up to 1M in size
