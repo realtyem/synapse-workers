@@ -1638,6 +1638,9 @@ def generate_worker_files(
     roles_lb_header_list = ["synchrotron"]
     roles_lb_ip_list = ["federation_inbound"]
 
+    # Keep a tally of what workers will care about having a larger hash table for nginx.
+    # The main process counts as 1, so start the tally there.
+    count_of_hash_requiring_workers = 1
     for upstream_name, upstream_worker_ports in nginx.upstreams_to_ports.items():
         body = ""
         roles_list = nginx.upstreams_roles[upstream_name]
@@ -1670,6 +1673,7 @@ def generate_worker_files(
         # a smarter way to cache data. This works well for federation.
         if any(x in roles_lb_ip_list for x in roles_list):
             body += "    hash $proxy_add_x_forwarded_for;\n"
+            count_of_hash_requiring_workers += 1
 
         # Some endpoints should be load-balanced by Authorization header. This
         # means that even with a different IP, a user should get the same data
@@ -1677,6 +1681,7 @@ def generate_worker_files(
         # caching of data.
         elif any(x in roles_lb_header_list for x in roles_list):
             body += "    hash $http_authorization consistent;\n"
+            count_of_hash_requiring_workers += 1
 
         # Add specific "hosts" by port number to the upstream block. In the case of Unix
         # sockets, borrow the port number to individualize the socket files.
@@ -1774,6 +1779,9 @@ def generate_worker_files(
         "gzip_comp_level": os.environ.get("NGINX_GZIP_COMP_LEVEL", 1),
         "gzip_http_version": os.environ.get("NGINX_GZIP_HTTP_VERSION", 1.1),
         "gzip_min_length": os.environ.get("NGINX_GZIP_MIN_LENGTH", 200),
+        "map_hash_max_size": os.environ.get(
+            "NGINX_MAP_HASH_MAX_SIZE", count_of_hash_requiring_workers * 1024 * 4
+        ),
     }
 
     convert(
