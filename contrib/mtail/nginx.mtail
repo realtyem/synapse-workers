@@ -1,9 +1,10 @@
 counter http_requests_total by vhost, method, code, content_type, http_version
 counter http_request_duration_milliseconds_sum by vhost, method, code, content_type, http_version
+counter http_upstream_response_duration_milliseconds_sum by vhost, method, code, content_type, http_version
 counter http_response_size_bytes_sum by vhost, method, code, content_type, http_version
 
 # log_format mtail '$server_name $remote_addr - $remote_user [$time_local] '
-#                  '"$request" $status $bytes_sent $request_time'
+#                  '"$request" $status $bytes_sent URT:$upstream_response_time $request_time'
 #                  '"$http_referer" "$http_user_agent" "$content_type"';
 
 /^/ +
@@ -15,6 +16,7 @@ counter http_response_size_bytes_sum by vhost, method, code, content_type, http_
 /"(?P<request_method>[A-Z]+) (?P<request_uri>\S+) (?P<http_version>HTTP\/[0-9\.]+)" / +
 /(?P<status>\d{3}) / +
 /(?P<bytes_sent>\d+) / +
+/URT:(?P<upstream_response_time_seconds>\d+)\.(?P<upstream_response_time_milliseconds>\d+) / +
 /(?P<request_seconds>\d+)\.(?P<request_milliseconds>\d+) / +
 /"(?P<http_referer>\S+)" / +
 /"(?P<http_user_agent>[[:print:]]+)" / +
@@ -22,5 +24,6 @@ counter http_response_size_bytes_sum by vhost, method, code, content_type, http_
 /$/ {
   http_requests_total[$vhost][tolower($request_method)][$status][$content_type][$http_version]++
   http_request_duration_milliseconds_sum[$vhost][tolower($request_method)][$status][$content_type][$http_version] += $request_seconds * 1000 + $request_milliseconds
+  http_upstream_response_duration_milliseconds_sum[$vhost][tolower($request_method)][$status][$content_type][$http_version] += $upstream_response_time_seconds * 1000 + $upstream_response_time_milliseconds
   http_response_size_bytes_sum[$vhost][tolower($request_method)][$status][$content_type][$http_version] += $bytes_sent
 }
