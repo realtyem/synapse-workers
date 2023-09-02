@@ -4,9 +4,17 @@
 
 log_format backend '[$time_local] - $proxy_add_x_forwarded_for - URT:$upstream_response_time request_time $request_time $status $upstream_addr: $request';
 
+# This log format is used for the mtail metrics scraping from the log. Both this and the
+# one above get written to logs.
 log_format mtail '$host $remote_addr - $remote_user [$time_local] '
                  '"$request" $status $body_bytes_sent URT:$upstream_response_time $request_time '
                  '"$http_referer" "$http_user_agent" "$content_type"';
+
+# This will only be used by the client_reader worker, if one is not requested and the
+# main process handles this end point then it will not be used
+map $request_uri $room_name {
+    ~^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/([^/]+)/messages.*$ $2;
+}
 
 upstream main_synapse_process {
     # Several theoretical optimizations are in this block(and subsequently in the

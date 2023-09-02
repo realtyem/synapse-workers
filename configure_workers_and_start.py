@@ -1637,6 +1637,7 @@ def generate_worker_files(
     # appropriate. Based on the Docs, this is it.
     roles_lb_header_list = ["synchrotron"]
     roles_lb_ip_list = ["federation_inbound"]
+    roles_lb_room_name: List[str] = ["client_reader"]
 
     # Keep a tally of what workers will care about having a larger hash table for nginx.
     # The main process counts as 1, so start the tally there.
@@ -1681,6 +1682,13 @@ def generate_worker_files(
         # caching of data.
         elif any(x in roles_lb_header_list for x in roles_list):
             body += "    hash $http_authorization consistent;\n"
+            count_of_hash_requiring_workers += 1
+
+        # Some endpoints cache better when the request uri with a room name is
+        # consistently mapped to the same worker. A `map` has been placed inside
+        # synapse-nginx.conf.j2 that this will reference.
+        elif any(x in roles_lb_room_name for x in roles_list):
+            body += "    hash $room_name consistent;\n"
             count_of_hash_requiring_workers += 1
 
         # Add specific "hosts" by port number to the upstream block. In the case of Unix
