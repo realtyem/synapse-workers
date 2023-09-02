@@ -1681,7 +1681,7 @@ def generate_worker_files(
         # from the same upstream source, like a synchrotron worker, with smarter
         # caching of data.
         elif any(x in roles_lb_header_list for x in roles_list):
-            body += "    hash $http_authorization consistent;\n"
+            body += "    hash $user_id consistent;\n"
             count_of_hash_requiring_workers += 1
 
         # Some endpoints cache better when the request uri with a room name is

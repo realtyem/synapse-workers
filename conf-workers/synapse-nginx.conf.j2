@@ -16,6 +16,13 @@ map $request_uri $room_name {
     ~^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/([^/]+)/messages.*$ $2;
 }
 
+# The synchrotron worker can load balance requests based on the user id portion of the
+# access token.
+map $http_authorization $user_id {
+    default                           $http_authorization;
+    "~Bearer syt_(?<username>.*?)_.*" $username;
+}
+
 upstream main_synapse_process {
     # Several theoretical optimizations are in this block(and subsequently in the
     # procedurally generated ones as well).
