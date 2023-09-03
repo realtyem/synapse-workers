@@ -37,8 +37,12 @@ http {
 
     sendfile on;
     tcp_nopush on;
-    types_hash_max_size 2048;
     # server_tokens off;
+
+    # Enable TCP_NODELAY on response, get them out of our lives and on their way. This
+    # is most useful when transitioning into a keep-alive state and for unbuffered
+    # proxying.
+    tcp_nodelay on;
 
     # server_names_hash_bucket_size 64;
     # server_name_in_redirect off;
@@ -85,11 +89,17 @@ http {
 
     # We ignore this value, as it is auto detected to be the size of a cache line in the CPU
     # map_hash_bucket_size 32|64|128
+
     # Any time a map is used to hash a request, it adds to the hash buckets. The default
     # is 2048 and is insufficient for any two workers that need a hash map. Bump to
     # minimum of 4096. Formula is (number of workers that need hash map * 1024 * 4) and
     # the main process counts as one.
     map_hash_max_size {{ config.map_hash_max_size }};
+
+    # These values can stay at defaults, as they are for MIME types. Synapse uses like
+    # 2-4 types(might be slightly more due to media requests). This has plenty of room.
+    types_hash_max_size 2048;
+    types_hash_bucket_size 64;
 
     ##
     # Virtual Host Configs
