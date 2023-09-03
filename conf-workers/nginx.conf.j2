@@ -35,6 +35,10 @@ http {
     # Basic Settings
     ##
 
+    # Both sendfile and tcp_nopush are related to each other. Specifically, tcp_nopush
+    # translates to the equivalent of Linux's TCP_CORK socket option. This allows
+    # sending the headers and the first part of a file in the first packet. Nginx
+    # doesn't actually serve files directly, so most likely this isn't used at all.
     sendfile on;
     tcp_nopush on;
     # server_tokens off;
@@ -100,6 +104,28 @@ http {
     # 2-4 types(might be slightly more due to media requests). This has plenty of room.
     types_hash_max_size 2048;
     types_hash_bucket_size 64;
+
+    ##
+    #   Client Requests Settings
+    ##
+    # By default this is equal to two memory pages, which on x86-64 is 8k. Anything that
+    # does not fit gets written to a temporary file before being forwarded upstream.
+    # Since incoming data can be large-ish, this should probably be a *lot* larger.
+    # Here's the math:
+    # Max PDU size = 64k, Max EDU size = unknown(usually between 50-100 bytes)
+    # Max # of PDU's in a Transaction = 50, Max # of EDU's in a Transaction = 100
+    # We'll say worst case for EDU's means just under 10k
+    # And worst case for PDU's is about 3200k.
+    client_body_buffer_size 3210k;
+
+    # Default was 1m, now it is 50 megabytes. This allows Nginx to be the bottleneck
+    # instead of Synapse, which would allow the complete upload to finish before
+    # rejecting it.
+    client_max_body_size {{ config.client_max_body_size }};
+
+    # Leave these as defaults for now. They are elastic enough.
+    client_header_buffer_size 1k;
+    large_client_header_buffers 4 8k;
 
     ##
     # Virtual Host Configs

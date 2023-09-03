@@ -1790,6 +1790,7 @@ def generate_worker_files(
         "map_hash_max_size": os.environ.get(
             "NGINX_MAP_HASH_MAX_SIZE", count_of_hash_requiring_workers * 1024 * 4
         ),
+        "client_max_body_size": os.environ.get("SYNAPSE_MAX_UPLOAD_SIZE", "50M"),
     }
 
     convert(

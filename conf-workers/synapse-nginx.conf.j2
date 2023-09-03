@@ -77,10 +77,6 @@ server {
     access_log /var/log/nginx/access.log mtail;
     error_log /var/log/nginx/error.log warn;
 
-    # Nginx by default only allows file uploads up to 1M in size
-    # Increase client_max_body_size to match max_upload_size defined in homeserver.yaml
-    client_max_body_size 0;
-
     # Synapse chunks responses according to the docs. We also want to use the keepalive
     # feature, so we need both of these globally.
     proxy_http_version 1.1;
