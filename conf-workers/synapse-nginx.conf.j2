@@ -77,12 +77,6 @@ server {
     access_log /var/log/nginx/access.log mtail;
     error_log /var/log/nginx/error.log warn;
 
-    # Synapse chunks responses according to the docs. We also want to use the keepalive
-    # feature, so we need both of these globally.
-    proxy_http_version 1.1;
-    proxy_set_header "Connection" "";
-    proxy_socket_keepalive on;
-
 {{ worker_locations }}
 
     # Send all other traffic to the main process. This is safe, in the case of

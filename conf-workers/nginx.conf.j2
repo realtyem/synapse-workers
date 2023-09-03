@@ -128,6 +128,65 @@ http {
     large_client_header_buffers 4 8k;
 
     ##
+    #   Proxy settings
+    ##
+    # We need the http version for proxying to be 1.1 so keep-alives and chunked transfers work.
+    proxy_http_version 1.1;
+
+    # Global keep-alive settings. Connection needs to be cleared, or keep-alive doesn't.
+    proxy_set_header "Connection" "";
+    proxy_socket_keepalive on;
+
+    # Proxy buffers settings
+    # This enables buffering responses from upstreams to clients. If this is disabled,
+    # the response will be passed to the client synchronously. However, when this
+    # happens data can only be received by Nginx of the size of 'proxy_buffer_size'
+    # below.
+    proxy_buffering on;
+
+    # This enables buffering requests from clients to upstreams and is dependent on
+    # client_body_buffer_size above
+    proxy_request_buffering on;
+
+    # Default is 1 memory page and 8 buffers. *Each connection* gets this. The larger
+    # examples of this are federation state_ids and sync requests. Responses that do not
+    # fit in these buffers get written to disk as a temporary file and served from
+    # there.
+    # As an extreme example of how insufficient these buffers are:
+    # Matrix HQ at last count had over 220 *thousand* state events, which in theory
+    # could be up to 64k in size *each*(they aren't, thankfully). That would be about
+    # 13GB of state to transfer. In practice, it is only about 800MB instead, and is
+    # only a factor when joining the room.
+    # We will not be accommodating Matrix HQ. Smaller old rooms can still have state of
+    # about 40MB, which is more reasonable. Sync requests can be large as well, but not
+    # in that magnitude of range, normally. Those we can work with. Use 8MB as a sane
+    # middle ground.
+    # The number of buffers is larger than the size, as they will not be allocated if
+    # unneeded. The size needs to match 'proxy_buffer_size' below. The lock for a buffer
+    # being 'busy' is also below, 'proxy_busy_buffers_size'.
+    proxy_buffers 1024 8k;
+
+    # This is used for reading the first part of the response from an upstream, usually
+    # it's a small response header.
+    proxy_buffer_size 8k;
+
+    # Typically, this is double the 'proxy_buffers' size. When a response is still being
+    # received from upstream, that buffer is locked as 'busy'. This sets the size of
+    # that buffer.
+    proxy_busy_buffers_size 16k;
+
+    # The maximum size of a upstream response that can be saved temporarily to disk.
+    proxy_max_temp_file_size 1024m;
+
+    # How much data to write at a time in the case of a temporary file. Default is
+    # usually the size of two of the buffers from proxy_buffers.
+    proxy_temp_file_write_size 16k;
+
+    # Proxy timeout between two successive reads from upstream. Sometimes federation
+    # requests can take longer than the default of 60 seconds.
+    proxy_read_timeout 60s;
+
+    ##
     # Virtual Host Configs
     ##
     server {
