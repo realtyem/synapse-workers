@@ -115,8 +115,9 @@ http {
     # Max PDU size = 64k, Max EDU size = unknown(usually between 50-100 bytes)
     # Max # of PDU's in a Transaction = 50, Max # of EDU's in a Transaction = 100
     # We'll say worst case for EDU's means just under 10k
-    # And worst case for PDU's is about 3200k.
-    client_body_buffer_size 3210k;
+    # And worst case for PDU's is about 3200k. Let's just use the proxy_buffers page
+    # size below and bump it up one magnitude level, so 4k would be 4m.
+    client_body_buffer_size {{ config.client_body_buffer_size }};
 
     # Default was 1m, now it is 50 megabytes. This allows Nginx to be the bottleneck
     # instead of Synapse, which would allow the complete upload to finish before
@@ -142,11 +143,11 @@ http {
     # the response will be passed to the client synchronously. However, when this
     # happens data can only be received by Nginx of the size of 'proxy_buffer_size'
     # below.
-    proxy_buffering on;
+    proxy_buffering {{ config.proxy_buffering }};
 
     # This enables buffering requests from clients to upstreams and is dependent on
     # client_body_buffer_size above
-    proxy_request_buffering on;
+    proxy_request_buffering {{ config.proxy_request_buffering }};
 
     # Default is 1 memory page and 8 buffers. *Each connection* gets this. The larger
     # examples of this are federation state_ids and sync requests. Responses that do not
@@ -164,27 +165,29 @@ http {
     # The number of buffers is larger than the size, as they will not be allocated if
     # unneeded. The size needs to match 'proxy_buffer_size' below. The lock for a buffer
     # being 'busy' is also below, 'proxy_busy_buffers_size'.
-    proxy_buffers 1024 8k;
+    proxy_buffers 1024 {{ config.proxy_buffer_page_size }};
 
     # This is used for reading the first part of the response from an upstream, usually
-    # it's a small response header.
-    proxy_buffer_size 8k;
+    # it's a small response header. If proxy buffering is disabled, this becomes a
+    # simple large buffer for responses to go while being synchronously being sent to
+    # the client and will be 32 * the second number of proxy_buffers above.
+    proxy_buffer_size {{ config.proxy_buffer_size }};
 
     # Typically, this is double the 'proxy_buffers' size. When a response is still being
     # received from upstream, that buffer is locked as 'busy'. This sets the size of
-    # that buffer.
-    proxy_busy_buffers_size 16k;
+    # that buffer(s).
+    proxy_busy_buffers_size {{ config.proxy_busy_buffers_size }};
 
     # The maximum size of a upstream response that can be saved temporarily to disk.
     proxy_max_temp_file_size 1024m;
 
     # How much data to write at a time in the case of a temporary file. Default is
     # usually the size of two of the buffers from proxy_buffers.
-    proxy_temp_file_write_size 16k;
+    proxy_temp_file_write_size {{ config.proxy_temp_file_write_size }};
 
     # Proxy timeout between two successive reads from upstream. Sometimes federation
     # requests can take longer than the default of 60 seconds.
-    proxy_read_timeout 60s;
+    proxy_read_timeout {{ config.proxy_read_timeout }};
 
     ##
     # Virtual Host Configs

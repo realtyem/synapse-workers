@@ -151,8 +151,7 @@ Grafana dashboards are provided in the contrib directory of the source repo.<br>
 * *PROMETHEUS_SCRAPE_INTERVAL*: Defaults to 15 seconds, allows the built-in Prometheus
   scrape interval to be changed. This will be set to the global `scrape_interval` as well
   as the one for the Synapse job.
-
-
+* **
 ## Nginx configuration
 The built-in reverse proxy has defaults that are sane for a generic webserver/remote
 proxy. This is not optimized for Synapse. We can do better.
@@ -161,6 +160,8 @@ proxy. This is not optimized for Synapse. We can do better.
 * *NGINX_WORKER_CONNECTIONS*: Number of simultaneous connections(client, remote server
   and Synapse workers/main process) per Nginx worker. Compilation default is 512. New
   default is 2048.
+
+### Connection compression
 * *NGINX_GZIP_COMP_LEVEL*: The compression level of responses. Default is 1. Higher is
   more compressed at the expense of more CPU used. Tradeoffs above 1 didn't seem worth
   the additional CPU.
@@ -169,3 +170,40 @@ proxy. This is not optimized for Synapse. We can do better.
 * *NGINX_GZIP_MIN_LENGTH*: If a response is smaller than this(in bytes), just send it.
   Normal default is 20, which is really tiny and a waste of time to try and compress.
   New default is 200, but could probably put this at a MTU frame size for efficiency.
+
+### Proxy Buffering
+* *NGINX_PROXY_BUFFERING*: Defaults to "on", change to "off" to disable buffering of
+  responses from Synapse to clients. See also `NGINX_PROXY_BUFFER_SIZE_BYTES` below.
+* *NGINX_PROXY_REQUEST_BUFFERING*: Defaults to "on", change to "off" to disable
+  buffering of requests from clients to Synapse. This enables the usage of
+  `NGINX_CLIENT_BODY_BUFFER_SIZE_BYTES` below.
+* *NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES*: The main size tunable, defaults to 8k(8192). Most
+  other buffer size variables are multipliers of this number, so allow adjusting all of
+  them at once with a single tunable. Fine-tuning, if required, is below.
+
+#### Proxy Buffering fine-tuning
+* *NGINX_PROXY_BUFFER_SIZE_BYTES*: The initial buffer for a response is this big,
+  defaults to `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES`. **However**, if `NGINX_PROXY_BUFFERING` is
+  disabled, it will default to 32 * `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES` instead.
+* *NGINX_PROXY_BUSY_BUFFERS_SIZE_BYTES*: The effective lock size for the currently being
+  filled from upstream buffer. Defaults to 2 * `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES`
+* *NGINX_PROXY_TEMP_FILE_WRITE_SIZE_BYTES*: When a response is to large to fit into the
+  proxy buffer, it is written to a temporary file. This determines how much data is
+  written at once. Defaults to 2 * `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES`
+* *NGINX_CLIENT_BODY_BUFFER_SIZE_BYTES*: While not strictly a proxy buffering variable,
+  it is related because of proxying of requests to an upstream. This allows for large
+  incoming requests to not be written to a temporary file before being proxied. Defaults
+  to 1024 * `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES`. The math that rationalizes this has to do
+  with maximum incoming PDU and EDU sizes and counts in a single Synapse `Transaction`,
+  and is more thoroughly documented in `nginx.conf.j2` in this repo.
+* *NGINX_PROXY_READ_TIMEOUT*: Defaults to "60s". Sometimes upstream responses can take
+  more than a minute between successive writes, use this to accommodate. Don't forget
+  the 's' to denote seconds.
+
+#### Further Notes about Nginx
+* The `SYNAPSE_MAX_UPLOAD_SIZE` above is also used to limit incoming traffic in Nginx.
+  This guard exists to prevent a DOS style attack against Synapse directly. While
+  Synapse has utilities to reject large uploads, they will not begin working until after
+  the transfer has completed. For example, someone uploads a 50GB image file to Synapse,
+  thereby taking up a huge amount of disk space *before* it is rejected and removed,
+  causing several systemic problems including database out-of-space errors.
