@@ -194,7 +194,7 @@ http {
     ##
     server {
         listen unix:/run/nginx_metrics.sock;
-
+        access_log off;
         # expose stub_status here
         location = /stub_status {
             stub_status;
