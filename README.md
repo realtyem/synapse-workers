@@ -184,7 +184,9 @@ proxy. This is not optimized for Synapse. We can do better.
 #### Proxy Buffering fine-tuning
 * *NGINX_PROXY_BUFFER_SIZE_BYTES*: The initial buffer for a response is this big,
   defaults to `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES`. **However**, if `NGINX_PROXY_BUFFERING` is
-  disabled, it will default to 32 * `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES` instead.
+  disabled, it will default to `NGINX_PROXY_BUFFERING_DISABLED_PAGE_MULTIPLIER` * `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES` instead.
+* *NGINX_PROXY_BUFFERING_DISABLED_PAGE_MULTIPLIER*: If proxy buffering is disabled, use
+  this multiplier to calculate the allowed memory space. Defaults to 1.
 * *NGINX_PROXY_BUSY_BUFFERS_SIZE_BYTES*: The effective lock size for the currently being
   filled from upstream buffer. Defaults to 2 * `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES`
 * *NGINX_PROXY_TEMP_FILE_WRITE_SIZE_BYTES*: When a response is to large to fit into the
@@ -207,3 +209,7 @@ proxy. This is not optimized for Synapse. We can do better.
   the transfer has completed. For example, someone uploads a 50GB image file to Synapse,
   thereby taking up a huge amount of disk space *before* it is rejected and removed,
   causing several systemic problems including database out-of-space errors.
+* Disabling proxy buffering is very strange in documentation. It allows it but seems to
+  do it anyways. I suppose the request/response has to be placed somewhere before
+  transferring on it's way. It speaks of it being synchronous in nature, which implies
+  that when enabled it is asynchronous.

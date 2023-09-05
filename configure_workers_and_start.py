@@ -1790,12 +1790,16 @@ def generate_worker_files(
     client_body_buffer_size = os.environ.get(
         "NGINX_CLIENT_BODY_BUFFER_SIZE_BYTES", 1024 * proxy_buffer_page_size
     )
-
+    proxy_buffering_disabled_page_multiplier = int(
+        os.environ.get("NGINX_PROXY_BUFFERING_DISABLED_PAGE_MULTIPLIER", 1)
+    )
     # That should settle the prerequesites, check for a disabled proxy buffer now
     if proxy_buffering_enabled == "off":
         # Inflate the buffer size, as a disabled proxy buffer still has to write data
         # somewhere.
-        proxy_buffer_page_size = proxy_buffer_page_size * 32
+        proxy_buffer_page_size = (
+            proxy_buffer_page_size * proxy_buffering_disabled_page_multiplier
+        )
     # Since some proxy buffering size variables are considered multiples of above, use
     # above to set the value unless specifically overridden.
     nginx_file_config_dict: Dict[str, Any] = {
