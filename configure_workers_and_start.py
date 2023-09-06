@@ -327,7 +327,6 @@ NGINX_UPSTREAM_CONFIG_BLOCK = """
 upstream {upstream_name} {{
     zone upstreams 512K;
 {body}
-    keepalive {keepalive_idle_connections};
 }}
 """
 
@@ -1324,11 +1323,6 @@ def generate_worker_files(
     # Start worker ports from this arbitrary port
     worker_port = 18009
 
-    # A keepalive multiplier, this gets multiplied by the number of server lines in a
-    # given upstream. This value is a maximum number of idle connections to keepalive.
-    # 1 is fine for testing, 32 is recommended for production.
-    keepalive_multiplier = 1
-
     # The main object where our workers configuration will live.
     workers = Workers(worker_port)
 
@@ -1617,6 +1611,21 @@ def generate_worker_files(
     # Should have all the data needed to create nginx configuration now
     nginx.create_upstreams_and_locations(workers)
 
+    # Pull data from the environment for use with Nginx for upstreams
+    keepalive_global_enable_evaled = os.environ.get("NGINX_KEEPALIVE_ENABLE", True)
+    if not isinstance(keepalive_global_enable_evaled, bool):
+        keepalive_global_enable_evaled = eval(
+            keepalive_global_enable_evaled.lower().capitalize()
+        )
+
+    nginx_upstreams_config_dict = {
+        "keepalive_global_enable": keepalive_global_enable_evaled,
+        "keepalive_timeout": int(os.environ.get("NGINX_KEEPALIVE_TIMEOUT_SECONDS", 60)),
+        "keepalive_connection_multiplier": int(
+            os.environ.get("NGINX_KEEPALIVE_CONNECTION_MULTIPLIER", 1)
+        ),
+    }
+
     # There are now two dicts to pull data from to construct the nginx config files.
     # nginx.locations has all the endpoints and the upstream they point at
     # nginx.upstreams_to_ports contains the upstream name and the ports it will need
@@ -1703,14 +1712,18 @@ def generate_worker_files(
         # number, as each connection to an upstream actually has two sockets. Then apply
         # our multiplier.
         keepalive_idle_connections = (
-            len(upstream_worker_ports) * 2 * keepalive_multiplier
+            len(upstream_worker_ports)
+            * 2
+            * nginx_upstreams_config_dict["keepalive_connection_multiplier"]
         )
+        if nginx_upstreams_config_dict["keepalive_global_enable"]:
+            body += f"    keepalive {keepalive_idle_connections};\n"
+            body += f"    keepalive_timeout {nginx_upstreams_config_dict['keepalive_timeout']};\n"
 
         # Everything else, just use the default basic round-robin scheme.
         nginx_upstream_config += NGINX_UPSTREAM_CONFIG_BLOCK.format(
             upstream_name=upstream_name,
             body=body,
-            keepalive_idle_connections=keepalive_idle_connections,
         )
 
     # Finally, we'll write out the config files.
@@ -1858,6 +1871,7 @@ def generate_worker_files(
         main_proxy_pass_cli_port=MAIN_PROCESS_NEW_CLIENT_PORT,
         # Part of the SYNAPSE_HTTP_FED_PORT experiment. Empty is ok here.
         main_proxy_pass_fed_port=MAIN_PROCESS_NEW_FEDERATION_PORT,
+        config=nginx_upstreams_config_dict,
     )
 
     # Prometheus config, if enabled

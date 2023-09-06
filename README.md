@@ -171,6 +171,27 @@ proxy. This is not optimized for Synapse. We can do better.
   Normal default is 20, which is really tiny and a waste of time to try and compress.
   New default is 200, but could probably put this at a MTU frame size for efficiency.
 
+### Keep-alives
+Nginx has support for HTTP 1.1 persistent connections on both receiving and sending.
+Both are now enabled by default. There do not seem to be any tunables for receiving
+such, other than enabling. OTOH, for sending there are a few we can adjust. Most are now
+set to acceptable defaults. *Keep in mind this only applies to upstreams and therefore
+Synapse workers*. The number of keep-alive connections is intentionally kept low, as
+documentation suggests that it is a *per host* and not a global setting. Docs also
+suggest that each upstream gets 2 connections, an up and a down. So, the formula is:
+
+(number_of_given_worker_type * 2 * `NGINX_KEEPALIVE_CONNECTION_MULTIPLIER`)
+
+* *NGINX_KEEPALIVE_ENABLE*: Defaults to True. Must be `True` or `False`. For connections
+  to upstreams **ONLY**. Allows for removal of all keepalive statements for debugging.
+  Nginx recommends having this enabled.
+* *NGINX_KEEPALIVE_TIMEOUT_SECONDS*: Defaults to 60 seconds. Check your `sysctl`
+  settings at `net.ipv4.tcp_keepalive_timeout` for what your OS is giving you and
+  duplicate that. Mine for example is 75 seconds.
+* *NGINX_KEEPALIVE_CONNECTION_MULTIPLIER*: A keepalive multiplier, this gets multiplied
+  by the number of server lines in a given upstream. This value is a maximum number of
+  idle connections to keepalive. Default is 1, more did not seem to help during testing.
+
 ### Proxy Buffering
 * *NGINX_PROXY_BUFFERING*: Defaults to "on", change to "off" to disable buffering of
   responses from Synapse to clients. See also `NGINX_PROXY_BUFFER_SIZE_BYTES` below.

@@ -36,7 +36,10 @@ upstream main_synapse_process {
 {% else %}
     server localhost:{{ main_proxy_pass_cli_port }};
 {% endif %}
+{% if config.keepalive_global_enable %}
     keepalive 2;
+    keepalive_timeout {{ config.keepalive_timeout }};
+{% endif %}
 }
 
 {{ upstream_directives }}
