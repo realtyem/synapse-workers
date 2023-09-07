@@ -160,10 +160,13 @@ proxy. This is not optimized for Synapse. We can do better.
 * *NGINX_WORKER_CONNECTIONS*: Number of simultaneous connections(client, remote server
   and Synapse workers/main process) per Nginx worker. Compilation default is 512. New
   default is 2048.
+* *NGINX_GENERAL_PAGE_SIZE_BYTES*: The main size tunable, defaults to 4k(4096). Most
+  other buffer size variables are multipliers of this number, so allow adjusting all of
+  them at once with a single tunable. Fine-tuning, if required, is below.
 
 ### Connection compression
 The default gzip buffer settings is 32 4k, so we will allow adjusting this by
-piggy-backing on `NGINX_PROXY_BUFFER_SIZE_BYTES` in a following section
+piggy-backing on `NGINX_GENERAL_PAGE_SIZE_BYTES` in a following section
 * *NGINX_GZIP_COMP_LEVEL*: The compression level of responses. Default is 1. Higher is
   more compressed at the expense of more CPU used. Tradeoffs above 1 didn't seem worth
   the additional CPU.
@@ -200,25 +203,22 @@ suggest that each upstream gets 2 connections, an up and a down. So, the formula
 * *NGINX_PROXY_REQUEST_BUFFERING*: Defaults to "on", change to "off" to disable
   buffering of requests from clients to Synapse. This enables the usage of
   `NGINX_CLIENT_BODY_BUFFER_SIZE_BYTES` below.
-* *NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES*: The main size tunable, defaults to 8k(8192). Most
-  other buffer size variables are multipliers of this number, so allow adjusting all of
-  them at once with a single tunable. Fine-tuning, if required, is below.
 
 #### Proxy Buffering fine-tuning
 * *NGINX_PROXY_BUFFER_SIZE_BYTES*: The initial buffer for a response is this big,
-  defaults to `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES`. **However**, if `NGINX_PROXY_BUFFERING` is
-  disabled, it will default to `NGINX_PROXY_BUFFERING_DISABLED_PAGE_MULTIPLIER` * `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES` instead.
+  defaults to `NGINX_GENERAL_PAGE_SIZE_BYTES`. **However**, if `NGINX_PROXY_BUFFERING` is
+  disabled, it will default to `NGINX_PROXY_BUFFERING_DISABLED_PAGE_MULTIPLIER` * `NGINX_GENERAL_PAGE_SIZE_BYTES` instead.
 * *NGINX_PROXY_BUFFERING_DISABLED_PAGE_MULTIPLIER*: If proxy buffering is disabled, use
   this multiplier to calculate the allowed memory space. Defaults to 1.
 * *NGINX_PROXY_BUSY_BUFFERS_SIZE_BYTES*: The effective lock size for the currently being
-  filled from upstream buffer. Defaults to 2 * `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES`
+  filled from upstream buffer. Defaults to 2 * `NGINX_GENERAL_PAGE_SIZE_BYTES`
 * *NGINX_PROXY_TEMP_FILE_WRITE_SIZE_BYTES*: When a response is to large to fit into the
   proxy buffer, it is written to a temporary file. This determines how much data is
-  written at once. Defaults to 2 * `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES`
+  written at once. Defaults to 2 * `NGINX_GENERAL_PAGE_SIZE_BYTES`
 * *NGINX_CLIENT_BODY_BUFFER_SIZE_BYTES*: While not strictly a proxy buffering variable,
   it is related because of proxying of requests to an upstream. This allows for large
   incoming requests to not be written to a temporary file before being proxied. Defaults
-  to 1024 * `NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES`. The math that rationalizes this has to do
+  to 1024 * `NGINX_GENERAL_PAGE_SIZE_BYTES`. The math that rationalizes this has to do
   with maximum incoming PDU and EDU sizes and counts in a single Synapse `Transaction`,
   and is more thoroughly documented in `nginx.conf.j2` in this repo.
 * *NGINX_PROXY_READ_TIMEOUT*: Defaults to "60s". Sometimes upstream responses can take

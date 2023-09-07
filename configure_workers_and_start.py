@@ -1795,24 +1795,16 @@ def generate_worker_files(
 
     # Main Nginx configuration
     proxy_buffering_enabled = os.environ.get("NGINX_PROXY_BUFFERING", "on")
-    proxy_buffer_page_size = int(
-        os.environ.get("NGINX_PROXY_BUFFER_PAGE_SIZE_BYTES", 4096)
-    )
+    nginx_page_size = int(os.environ.get("NGINX_GENERAL_PAGE_SIZE_BYTES", 4096))
     # Grab this early, in case the proxy buffer system is disabled, if we don't the
     # client body buffer is going to be HUGE
     client_body_buffer_size = os.environ.get(
-        "NGINX_CLIENT_BODY_BUFFER_SIZE_BYTES", 1024 * proxy_buffer_page_size
+        "NGINX_CLIENT_BODY_BUFFER_SIZE_BYTES", 1024 * nginx_page_size
     )
     proxy_buffering_disabled_page_multiplier = int(
         os.environ.get("NGINX_PROXY_BUFFERING_DISABLED_PAGE_MULTIPLIER", 1)
     )
-    # That should settle the prerequesites, check for a disabled proxy buffer now
-    if proxy_buffering_enabled == "off":
-        # Inflate the buffer size, as a disabled proxy buffer still has to write data
-        # somewhere.
-        proxy_buffer_page_size = (
-            proxy_buffer_page_size * proxy_buffering_disabled_page_multiplier
-        )
+
     # Since some proxy buffering size variables are considered multiples of above, use
     # above to set the value unless specifically overridden.
     nginx_file_config_dict: Dict[str, Any] = {
@@ -1832,19 +1824,25 @@ def generate_worker_files(
         "proxy_request_buffering": os.environ.get(
             "NGINX_PROXY_REQUEST_BUFFERING", "on"
         ),
-        "proxy_buffer_page_size": proxy_buffer_page_size,
+        # Allow for inflating the size of the response memory structure if proxy
+        # buffering is disabled.
+        "proxy_buffer_page_size": (
+            nginx_page_size * proxy_buffering_disabled_page_multiplier
+        )
+        if proxy_buffering_enabled == "off"
+        else nginx_page_size,
         "proxy_buffer_size": os.environ.get(
             "NGINX_PROXY_BUFFER_SIZE_BYTES",
-            proxy_buffer_page_size,
+            nginx_page_size,
         ),
         "proxy_busy_buffers_size": os.environ.get(
             "NGINX_PROXY_BUSY_BUFFERS_SIZE_BYTES",
-            proxy_buffer_page_size * 2,
+            nginx_page_size * 2,
         ),
         "proxy_temp_file_write_size": os.environ.get(
-            "NGINX_PROXY_TEMP_FILE_WRITE_SIZE_BYTES", proxy_buffer_page_size * 2
+            "NGINX_PROXY_TEMP_FILE_WRITE_SIZE_BYTES", nginx_page_size * 2
         ),
-        "proxy_read_timeout": os.environ.get("NGINX_PROXY_READ_TIMEOUT", "60s"),
+        "proxy_read_timeout": os.environ.get("NGINX_PROXY_READ_TIMEOUT", 60),
     }
 
     convert(
