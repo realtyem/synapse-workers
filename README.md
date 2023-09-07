@@ -162,6 +162,8 @@ proxy. This is not optimized for Synapse. We can do better.
   default is 2048.
 
 ### Connection compression
+The default gzip buffer settings is 32 4k, so we will allow adjusting this by
+piggy-backing on `NGINX_PROXY_BUFFER_SIZE_BYTES` in a following section
 * *NGINX_GZIP_COMP_LEVEL*: The compression level of responses. Default is 1. Higher is
   more compressed at the expense of more CPU used. Tradeoffs above 1 didn't seem worth
   the additional CPU.

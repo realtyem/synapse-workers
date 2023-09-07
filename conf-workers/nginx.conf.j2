@@ -79,7 +79,7 @@ http {
     # gzip compression level by default is 1, allow override to higher(max 9)
     gzip_comp_level {{ config.gzip_comp_level }};
     # gzip_buffers defaults to 32 buffers at 4k size
-    gzip_buffers 16 8k;
+    gzip_buffers 32 {{ config.proxy_buffer_page_size }};
     # gzip_http_version defaults to 1.1 and up, optionally lower it
     gzip_http_version {{ config.gzip_http_version }};
     # gzip_types defaults to only text/html, enable more
