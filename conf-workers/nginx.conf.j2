@@ -41,7 +41,8 @@ http {
     # doesn't actually serve files directly, so most likely this isn't used at all.
     sendfile on;
     tcp_nopush on;
-    # server_tokens off;
+    # Don't send the Nginx version string, its no one's business but ours.
+    server_tokens off;
 
     # Enable TCP_NODELAY on response, get them out of our lives and on their way. This
     # is most useful when transitioning into a keep-alive state and for unbuffered
