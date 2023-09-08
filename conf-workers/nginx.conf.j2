@@ -129,14 +129,22 @@ http {
     large_client_header_buffers 4 8k;
 
     ##
+    #   Keep-Alives for Clients
+    ##
+    # Connection needs to be cleared, or keep-alive doesn't.
+    proxy_set_header "Connection" "";
+    # This is only for TCP connections, and is harmless to leave enabled otherwise. Docs
+    # suggest it is only for connecting to upstreams.
+    proxy_socket_keepalive on;
+    # This is the keep alive timeout setting for the client side of the equation
+    keepalive_timeout {{ config.client_keepalive_timeout }};
+
+
+    ##
     #   Proxy settings
     ##
     # We need the http version for proxying to be 1.1 so keep-alives and chunked transfers work.
     proxy_http_version 1.1;
-
-    # Global keep-alive settings. Connection needs to be cleared, or keep-alive doesn't.
-    proxy_set_header "Connection" "";
-    proxy_socket_keepalive on;
 
     # Proxy buffers settings
     # This enables buffering responses from upstreams to clients. If this is disabled,

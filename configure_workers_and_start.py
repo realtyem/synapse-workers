@@ -318,7 +318,7 @@ NGINX_LOCATION_CONFIG_BLOCK = """
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Host $host;
-
+{additional_location_body}
     }}
 """
 
@@ -1612,17 +1612,17 @@ def generate_worker_files(
     nginx.create_upstreams_and_locations(workers)
 
     # Pull data from the environment for use with Nginx for upstreams
-    keepalive_global_enable_evaled = os.environ.get("NGINX_KEEPALIVE_ENABLE", True)
-    if not isinstance(keepalive_global_enable_evaled, bool):
-        keepalive_global_enable_evaled = eval(
-            keepalive_global_enable_evaled.lower().capitalize()
-        )
+    keepalive_upstream_global_enable = getenv_bool(
+        "NGINX_UPSTREAM_KEEPALIVE_ENABLE", True
+    )
 
     nginx_upstreams_config_dict = {
-        "keepalive_global_enable": keepalive_global_enable_evaled,
-        "keepalive_timeout": int(os.environ.get("NGINX_KEEPALIVE_TIMEOUT_SECONDS", 60)),
+        "keepalive_global_enable": keepalive_upstream_global_enable,
+        "keepalive_timeout": int(
+            os.environ.get("NGINX_UPSTREAM_KEEPALIVE_TIMEOUT_SECONDS", 60)
+        ),
         "keepalive_connection_multiplier": int(
-            os.environ.get("NGINX_KEEPALIVE_CONNECTION_MULTIPLIER", 1)
+            os.environ.get("NGINX_UPSTREAM_KEEPALIVE_CONNECTION_MULTIPLIER", 1)
         ),
     }
 
@@ -1634,9 +1634,13 @@ def generate_worker_files(
     # when we pre-pend the 'http://'
     nginx_location_config = ""
     for endpoint_url, upstream_to_use in nginx.locations.items():
+        additional_location_body = ""
+        if keepalive_upstream_global_enable:
+            additional_location_body = '        proxy_set_header Connection "";\n'
         nginx_location_config += NGINX_LOCATION_CONFIG_BLOCK.format(
             endpoint=endpoint_url,
             upstream=f"http://{upstream_to_use}",
+            additional_location_body=additional_location_body,
         )
 
     # Determine the load-balancing upstreams to configure
@@ -1708,15 +1712,16 @@ def generate_worker_files(
             else:
                 body += f"    server localhost:{port};\n"
 
-        # Need this to determine keepalive argument, need multiple of 2. Double the
-        # number, as each connection to an upstream actually has two sockets. Then apply
-        # our multiplier.
-        keepalive_idle_connections = (
-            len(upstream_worker_ports)
-            * 2
-            * nginx_upstreams_config_dict["keepalive_connection_multiplier"]
-        )
         if nginx_upstreams_config_dict["keepalive_global_enable"]:
+            # Need this to determine keepalive argument, need multiple of 2. Double the
+            # number, as each connection to an upstream actually has two sockets. Then apply
+            # our multiplier.
+            keepalive_idle_connections = (
+                len(upstream_worker_ports)
+                * 2
+                * nginx_upstreams_config_dict["keepalive_connection_multiplier"]
+            )
+
             body += f"    keepalive {keepalive_idle_connections};\n"
             body += f"    keepalive_timeout {nginx_upstreams_config_dict['keepalive_timeout']};\n"
 
@@ -1794,6 +1799,7 @@ def generate_worker_files(
     debug(f"main_entry_point_unix_socket: {main_entry_point_unix_socket}")
 
     # Main Nginx configuration
+    # Let's preprocess a few things to allow cleaner configuration.
     proxy_buffering_enabled = os.environ.get("NGINX_PROXY_BUFFERING", "on")
     nginx_page_size = int(os.environ.get("NGINX_GENERAL_PAGE_SIZE_BYTES", 4096))
     # Grab this early, in case the proxy buffer system is disabled, if we don't the
@@ -1801,6 +1807,7 @@ def generate_worker_files(
     client_body_buffer_size = os.environ.get(
         "NGINX_CLIENT_BODY_BUFFER_SIZE_BYTES", 1024 * nginx_page_size
     )
+    client_keepalive_enabled = (getenv_bool("NGINX_CLIENT_KEEPALIVE_ENABLE", True),)
     proxy_buffering_disabled_page_multiplier = int(
         os.environ.get("NGINX_PROXY_BUFFERING_DISABLED_PAGE_MULTIPLIER", 1)
     )
@@ -1817,6 +1824,11 @@ def generate_worker_files(
             "NGINX_MAP_HASH_MAX_SIZE", count_of_hash_requiring_workers * 1024 * 4
         ),
         "client_body_buffer_size": client_body_buffer_size,
+        "client_keepalive_timeout": os.environ.get(
+            "NGINX_CLIENT_KEEPALIVE_TIMEOUT_SECONDS", 60
+        )
+        if client_keepalive_enabled
+        else 0,
         "client_max_body_size": os.environ.get(
             "SYNAPSE_MAX_UPLOAD_SIZE", "50M".lower()
         ),
