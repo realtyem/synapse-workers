@@ -156,7 +156,9 @@ Grafana dashboards are provided in the contrib directory of the source repo.<br>
 The built-in reverse proxy has defaults that are sane for a generic webserver/remote
 proxy. This is not optimized for Synapse. We can do better.
 * *NGINX_WORKER_PROCESSES*: Number of Nginx worker processes created. Defaults to
-  "auto", which should be the number of CPU cores.
+  "auto", which should be the number of CPU cores(including logical processors. *NOTE*:
+  This will not honor docker container restriction on cpu. You will need to set this
+  explicitly.
 * *NGINX_WORKER_CONNECTIONS*: Number of simultaneous connections(client, remote server
   and Synapse workers/main process) per Nginx worker. Compilation default is 512. New
   default is 2048.

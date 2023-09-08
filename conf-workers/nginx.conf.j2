@@ -1,6 +1,9 @@
 user www-data;
 # worker_processes is set to auto to automatically detect the number of processors. This
-# will influence the number of workers nginx will start.
+# will influence the number of workers nginx will start. Be aware, this includes logical
+# processors as well. If you limit cpu cores with docker switches, this will not honor
+# that restriction and will create the number of total processors(including logical)
+# worth of worker processes.
 worker_processes {{ config.worker_processes }};
 pid /run/nginx.pid;
 include /etc/nginx/modules-enabled/*.conf;
