@@ -46,7 +46,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update -qq && \
     DEBIAN_FRONTEND=noninteractive apt-get install -yqq --no-install-recommends \
-      nginx-light \
       prometheus \
       && rm -rf /var/lib/apt/lists/*
 
@@ -59,6 +58,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 #
 # We will be using the PPA version of keydb until their docker image works for bookworm
 # FROM eqalpha/keydb:latest AS redis_base
+
+# Do the same for the Nginx docker image.
+FROM nginx:1.24.0 as nginx_base
 
 # The synapse auto compressor is from an image we build. It won't change much
 # so there's no reason to not have this pre-compiled and just borrow it. This also
@@ -112,8 +114,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 # Prepare directories. Do it in one layer
 RUN mkdir -p /etc/supervisor/conf.d && \
-    mkdir /var/log/nginx /var/lib/nginx && \
-    chown www-data /var/log/nginx /var/lib/nginx && \
+    mkdir /var/log/nginx /var/cache/nginx && \
+    chown www-data /var/log/nginx /var/cache/nginx && \
     mkdir -p /etc/prometheus
 
 # Install supervisord with pip instead of apt, to avoid installing a second
@@ -124,11 +126,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # Copy over redis and nginx
 # COPY --from=redis_base /usr/local/bin/keydb-server /usr/local/bin
 
-COPY --from=deps_base /usr/sbin/nginx /usr/sbin
-COPY --from=deps_base /usr/share/nginx /usr/share/nginx
-COPY --from=deps_base /usr/lib/nginx /usr/lib/nginx
-COPY --from=deps_base /etc/nginx /etc/nginx
-RUN rm /etc/nginx/sites-enabled/default
+COPY --from=nginx_base /usr/sbin/nginx /usr/sbin
+COPY --from=nginx_base /usr/share/nginx /usr/share/nginx
+COPY --from=nginx_base /usr/lib/nginx /usr/lib/nginx
+COPY --from=nginx_base /etc/nginx /etc/nginx
+RUN rm /etc/nginx/conf.d/default.conf
 
 # Copy over Prometheus. Should we bring the website files. It's 10's of MB's
 COPY --from=deps_base /usr/bin/prometheus /usr/bin
