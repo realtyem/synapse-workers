@@ -1,83 +1,216 @@
-# This file contains the base config for the reverse proxy, as part of ../Dockerfile-workers.
-# configure_workers_and_start.py uses and amends to this file depending on the workers
-# that have been selected.
+user www-data;
+# worker_processes is set to auto to automatically detect the number of processors. This
+# will influence the number of workers nginx will start. Be aware, this includes logical
+# processors as well. If you limit cpu cores with docker switches, this will not honor
+# that restriction and will create the number of total processors(including logical)
+# worth of worker processes.
+worker_processes {{ config.worker_processes }};
+pid /run/nginx.pid;
+include /etc/nginx/modules-enabled/*.conf;
 
-log_format backend '[$time_local] - $proxy_add_x_forwarded_for - URT:$upstream_response_time request_time $request_time $status $upstream_addr: $request';
+# Enable regex precompilation. Any regex in the location blocks that isn't to broad(like
+# .*) will be optimized instead of being re-evaluated on each request.
+pcre_jit on;
 
-upstream main_synapse_process {
-    # Several theoretical optimizations are in this block(and subsequently in the
-    # procedurally generated ones as well).
-    # zone *shared_memory_zone_name* *size*
-    # https://nginx.org/en/docs/http/ngx_http_upstream_module.html#zone
-    # keepalive *number*
-    # https://nginx.org/en/docs/http/ngx_http_upstream_module.html#keepalive
-    zone upstreams 512K;
-{% if enable_proxy_to_unix_socket %}
-    server unix:/run/main_public.sock;
-{% else %}
-    server localhost:{{ main_proxy_pass_cli_port }};
-{% endif %}
-    keepalive 2;
+events {
+    # Each nginx worker is allowed to accept this many connections. This is the maximum
+    # number of simultaneous connections, both inbound and outbound(so both client and
+    # proxied server). This number can be fairly high, but watch your file descriptor
+    # limit(setting worker_rlimit_nofile). Default is 512, original file default 768
+    worker_connections {{ config.worker_connections }};
+
+    # The distribution of this image is for Linux, so the epoll connection processing
+    # method is used by default.
+    # use epoll;
+
+    # In order to accept multiple connection requests on the same
+    # worker, multi_accept must be on. It defaults to off.
+    multi_accept on;
+
+    # When using aio, this is the maximum number of outstanding asynchronous operations
+    # per worker. Defaults to 32
+    worker_aio_requests 32;
 }
 
-{{ upstream_directives }}
+http {
 
-server {
-    # Listen on an unoccupied port number, traditionally 8008. This is pulled in from
-    # your existing(or just created) homeserver.yaml file. This should allow you to not
-    # have to change any ports set up in your docker image
-    listen {{ original_client_listener_port or '8008' }};
-    listen [::]:{{ original_client_listener_port or '8008' }};
-{%- if main_entry_point_unix_socket is not none %}
-    listen unix:{{ main_entry_point_unix_socket }};
-{% endif -%}
-{% if tls_cert_path is not none and tls_key_path is not none %}
-    # this allows for:
-    # 1. Piping in a federation port directly if you have TlS certs in place. This is
-    #    no longer recommended practice, as TLS validation in Synapse isn't the best.
-    #    You should be using an external reverse proxy for this, such as NPM or swag.
-    # 2. Backwards compatibility with Complement, which sets up TLS certs for tests
-    listen 8448 ssl;
-    listen [::]:8448 ssl;
+    ##
+    # Basic Settings
+    ##
 
-    ssl_certificate {{ tls_cert_path }};
-    ssl_certificate_key {{ tls_key_path }};
+    # Both sendfile and tcp_nopush are related to each other. Specifically, tcp_nopush
+    # translates to the equivalent of Linux's TCP_CORK socket option. This allows
+    # sending the headers and the first part of a file in the first packet. Nginx
+    # doesn't actually serve files directly, so most likely this isn't used at all.
+    sendfile on;
+    tcp_nopush on;
+    # Don't send the Nginx version string, its no one's business but ours.
+    server_tokens off;
 
-    # Some directives from cipherlist.eu (fka cipherli.st):
-    ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;
+    # Enable TCP_NODELAY on response, get them out of our lives and on their way. This
+    # is most useful when transitioning into a keep-alive state and for unbuffered
+    # proxying.
+    tcp_nodelay on;
+
+    # server_names_hash_bucket_size 64;
+    # server_name_in_redirect off;
+
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    ##
+    # SSL Settings
+    ##
+
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3; # Dropping SSLv3, ref: POODLE
     ssl_prefer_server_ciphers on;
-    ssl_ciphers "EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH";
-    ssl_ecdh_curve secp384r1; # Requires nginx >= 1.1.0
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_tickets off; # Requires nginx >= 1.5.9
-{% endif %}
 
-    server_name localhost;
+    ##
+    # Logging Settings
+    ##
 
-    # access_log /data/logs/synapse.log backend;
-    access_log /dev/stdout backend;
-    error_log stderr warn;
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
 
-    # Nginx by default only allows file uploads up to 1M in size
-    # Increase client_max_body_size to match max_upload_size defined in homeserver.yaml
-    client_max_body_size 0;
+    ##
+    # Gzip Settings
+    ##
 
-    # Synapse chunks responses according to the docs. We also want to use the keepalive
-    # feature, so we need both of these globally.
-    proxy_http_version 1.1;
-    proxy_set_header "Connection" "";
+    gzip on;
+    gzip_vary on;
+    # gzip any response(of gzip_types below)
+    gzip_proxied any;
+    # gzip compression level by default is 1, allow override to higher(max 9)
+    gzip_comp_level {{ config.gzip_comp_level }};
+    # gzip_buffers defaults to 32 buffers at 4k size
+    gzip_buffers 32 {{ config.proxy_buffer_page_size }};
+    # gzip_http_version defaults to 1.1 and up, optionally lower it
+    gzip_http_version {{ config.gzip_http_version }};
+    # gzip_types defaults to only text/html, enable more
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+    # Don't bother compressing a response if the header says the "Content-Length" is less than:
+    gzip_min_length {{ config.gzip_min_length }};
+
+    ##
+    # Hash map Bucket Sizes
+    ##
+
+    # We ignore this value, as it is auto detected to be the size of a cache line in the CPU
+    # map_hash_bucket_size 32|64|128
+
+    # Any time a map is used to hash a request, it adds to the hash buckets. The default
+    # is 2048 and is insufficient for any two workers that need a hash map. Bump to
+    # minimum of 4096. Formula is (number of workers that need hash map * 1024 * 4) and
+    # the main process counts as one.
+    map_hash_max_size {{ config.map_hash_max_size }};
+
+    # These values can stay at defaults, as they are for MIME types. Synapse uses like
+    # 2-4 types(might be slightly more due to media requests). This has plenty of room.
+    types_hash_max_size 2048;
+    types_hash_bucket_size 64;
+
+    ##
+    #   Client Requests Settings
+    ##
+    # By default this is equal to two memory pages, which on x86-64 is 8k. Anything that
+    # does not fit gets written to a temporary file before being forwarded upstream.
+    # Since incoming data can be large-ish, this should probably be a *lot* larger.
+    # Here's the math:
+    # Max PDU size = 64k, Max EDU size = unknown(usually between 50-100 bytes)
+    # Max # of PDU's in a Transaction = 50, Max # of EDU's in a Transaction = 100
+    # We'll say worst case for EDU's means just under 10k
+    # And worst case for PDU's is about 3200k. Let's just use the proxy_buffers page
+    # size below and bump it up one magnitude level, so 4k would be 4m.
+    client_body_buffer_size {{ config.client_body_buffer_size }};
+
+    # Default was 1m, now it is 50 megabytes. This allows Nginx to be the bottleneck
+    # instead of Synapse, which would allow the complete upload to finish before
+    # rejecting it.
+    client_max_body_size {{ config.client_max_body_size }};
+
+    # Leave these as defaults for now. They are elastic enough.
+    client_header_buffer_size 1k;
+    large_client_header_buffers 4 8k;
+
+    ##
+    #   Keep-Alives for Clients
+    ##
+    # This is only for TCP connections, and is harmless to leave enabled otherwise. Docs
+    # suggest it is only for connecting to upstreams.
     proxy_socket_keepalive on;
+    # This is the keep alive timeout setting for the client side of the equation
+    keepalive_timeout {{ config.client_keepalive_timeout }};
 
-{{ worker_locations }}
 
-    # Send all other traffic to the main process. This is safe, in the case of
-    # /_synapse/replication/, because it is actually on a different port.
-    location ~* ^(\\/_matrix|\\/_synapse) {
-        # This is proxied into the upstream defined above to take advantage of
-        # features inherent from HTTP 1.1
-        proxy_pass http://main_synapse_process;
-        proxy_set_header X-Forwarded-For $remote_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Host $host;
+    ##
+    #   Proxy settings
+    ##
+    # We need the http version for proxying to be 1.1 so keep-alives and chunked transfers work.
+    proxy_http_version 1.1;
+
+    # Proxy buffers settings
+    # This enables buffering responses from upstreams to clients. If this is disabled,
+    # the response will be passed to the client synchronously. However, when this
+    # happens data can only be received by Nginx of the size of 'proxy_buffer_size'
+    # below.
+    proxy_buffering {{ config.proxy_buffering }};
+
+    # This enables buffering requests from clients to upstreams and is dependent on
+    # client_body_buffer_size above
+    proxy_request_buffering {{ config.proxy_request_buffering }};
+
+    # Default is 1 memory page and 8 buffers. *Each connection* gets this. The larger
+    # examples of this are federation state_ids and sync requests. Responses that do not
+    # fit in these buffers get written to disk as a temporary file and served from
+    # there.
+    # As an extreme example of how insufficient these buffers are:
+    # Matrix HQ at last count had over 220 *thousand* state events, which in theory
+    # could be up to 64k in size *each*(they aren't, thankfully). That would be about
+    # 13GB of state to transfer. In practice, it is only about 800MB instead, and is
+    # only a factor when joining the room.
+    # We will not be accommodating Matrix HQ. Smaller old rooms can still have state of
+    # about 40MB, which is more reasonable. Sync requests can be large as well, but not
+    # in that magnitude of range, normally. Those we can work with. Use 8MB as a sane
+    # middle ground.
+    # The number of buffers is larger than the size, as they will not be allocated if
+    # unneeded. The size needs to match 'proxy_buffer_size' below. The lock for a buffer
+    # being 'busy' is also below, 'proxy_busy_buffers_size'.
+    proxy_buffers 1024 {{ config.proxy_buffer_page_size }};
+
+    # This is used for reading the first part of the response from an upstream, usually
+    # it's a small response header. If proxy buffering is disabled, this becomes a
+    # simple large buffer for responses to go while being synchronously being sent to
+    # the client and will be 32 * the second number of proxy_buffers above.
+    proxy_buffer_size {{ config.proxy_buffer_size }};
+
+    # Typically, this is double the 'proxy_buffers' size. When a response is still being
+    # received from upstream, that buffer is locked as 'busy'. This sets the size of
+    # that buffer(s).
+    proxy_busy_buffers_size {{ config.proxy_busy_buffers_size }};
+
+    # The maximum size of a upstream response that can be saved temporarily to disk.
+    proxy_max_temp_file_size 1024m;
+
+    # How much data to write at a time in the case of a temporary file. Default is
+    # usually the size of two of the buffers from proxy_buffers.
+    proxy_temp_file_write_size {{ config.proxy_temp_file_write_size }};
+
+    # Proxy timeout between two successive reads from upstream. Sometimes federation
+    # requests can take longer than the default of 60 seconds.
+    proxy_read_timeout {{ config.proxy_read_timeout }};
+
+    ##
+    # Virtual Host Configs
+    ##
+    server {
+        listen unix:/run/nginx_metrics.sock;
+        access_log off;
+        # expose stub_status here
+        location = /stub_status {
+            stub_status;
+        }
     }
+    # The location nginx data will end up in this directory
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
 }

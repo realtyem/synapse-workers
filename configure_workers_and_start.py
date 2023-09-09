@@ -318,7 +318,7 @@ NGINX_LOCATION_CONFIG_BLOCK = """
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Host $host;
-
+{additional_location_body}
     }}
 """
 
@@ -327,7 +327,6 @@ NGINX_UPSTREAM_CONFIG_BLOCK = """
 upstream {upstream_name} {{
     zone upstreams 512K;
 {body}
-    keepalive {keepalive_idle_connections};
 }}
 """
 
@@ -823,12 +822,13 @@ def flush_buffers() -> None:
     sys.stderr.flush()
 
 
-def convert(src: str, dst: str, **template_vars: object) -> None:
+def convert(src: str, dst: str, mode: str = "a", **template_vars: object) -> None:
     """Generate a file from a template
 
     Args:
         src: Path to the input file.
         dst: Path to write to.
+        mode: "a" to append a file, "w" to wipe and write a file. See open docstring.
         template_vars: The arguments to replace placeholder variables in the template
             with.
     """
@@ -845,7 +845,7 @@ def convert(src: str, dst: str, **template_vars: object) -> None:
     #
     # We use append mode in case the files have already been written to by something
     # else (for instance, as part of the instructions in a dockerfile).
-    with open(dst, "a") as outfile:
+    with open(dst, mode) as outfile:
         # In case the existing file doesn't end with a newline
         outfile.write("\n")
 
@@ -1323,11 +1323,6 @@ def generate_worker_files(
     # Start worker ports from this arbitrary port
     worker_port = 18009
 
-    # A keepalive multiplier, this gets multiplied by the number of server lines in a
-    # given upstream. This value is a maximum number of idle connections to keepalive.
-    # 1 is fine for testing, 32 is recommended for production.
-    keepalive_multiplier = 1
-
     # The main object where our workers configuration will live.
     workers = Workers(worker_port)
 
@@ -1616,6 +1611,21 @@ def generate_worker_files(
     # Should have all the data needed to create nginx configuration now
     nginx.create_upstreams_and_locations(workers)
 
+    # Pull data from the environment for use with Nginx for upstreams
+    keepalive_upstream_global_enable = getenv_bool(
+        "NGINX_UPSTREAM_KEEPALIVE_ENABLE", True
+    )
+
+    nginx_upstreams_config_dict = {
+        "keepalive_global_enable": keepalive_upstream_global_enable,
+        "keepalive_timeout": int(
+            os.environ.get("NGINX_UPSTREAM_KEEPALIVE_TIMEOUT_SECONDS", 60)
+        ),
+        "keepalive_connection_multiplier": int(
+            os.environ.get("NGINX_UPSTREAM_KEEPALIVE_CONNECTION_MULTIPLIER", 1)
+        ),
+    }
+
     # There are now two dicts to pull data from to construct the nginx config files.
     # nginx.locations has all the endpoints and the upstream they point at
     # nginx.upstreams_to_ports contains the upstream name and the ports it will need
@@ -1624,9 +1634,13 @@ def generate_worker_files(
     # when we pre-pend the 'http://'
     nginx_location_config = ""
     for endpoint_url, upstream_to_use in nginx.locations.items():
+        additional_location_body = ""
+        if keepalive_upstream_global_enable:
+            additional_location_body = '        proxy_set_header Connection "";\n'
         nginx_location_config += NGINX_LOCATION_CONFIG_BLOCK.format(
             endpoint=endpoint_url,
             upstream=f"http://{upstream_to_use}",
+            additional_location_body=additional_location_body,
         )
 
     # Determine the load-balancing upstreams to configure
@@ -1636,7 +1650,11 @@ def generate_worker_files(
     # appropriate. Based on the Docs, this is it.
     roles_lb_header_list = ["synchrotron"]
     roles_lb_ip_list = ["federation_inbound"]
+    roles_lb_room_name: List[str] = ["client_reader"]
 
+    # Keep a tally of what workers will care about having a larger hash table for nginx.
+    # The main process counts as 1, so start the tally there.
+    count_of_hash_requiring_workers = 1
     for upstream_name, upstream_worker_ports in nginx.upstreams_to_ports.items():
         body = ""
         roles_list = nginx.upstreams_roles[upstream_name]
@@ -1669,13 +1687,22 @@ def generate_worker_files(
         # a smarter way to cache data. This works well for federation.
         if any(x in roles_lb_ip_list for x in roles_list):
             body += "    hash $proxy_add_x_forwarded_for;\n"
+            count_of_hash_requiring_workers += 1
 
         # Some endpoints should be load-balanced by Authorization header. This
         # means that even with a different IP, a user should get the same data
         # from the same upstream source, like a synchrotron worker, with smarter
         # caching of data.
         elif any(x in roles_lb_header_list for x in roles_list):
-            body += "    hash $http_authorization consistent;\n"
+            body += "    hash $user_id consistent;\n"
+            count_of_hash_requiring_workers += 1
+
+        # Some endpoints cache better when the request uri with a room name is
+        # consistently mapped to the same worker. A `map` has been placed inside
+        # synapse-nginx.conf.j2 that this will reference.
+        elif any(x in roles_lb_room_name for x in roles_list):
+            body += "    hash $room_name consistent;\n"
+            count_of_hash_requiring_workers += 1
 
         # Add specific "hosts" by port number to the upstream block. In the case of Unix
         # sockets, borrow the port number to individualize the socket files.
@@ -1685,18 +1712,23 @@ def generate_worker_files(
             else:
                 body += f"    server localhost:{port};\n"
 
-        # Need this to determine keepalive argument, need multiple of 2. Double the
-        # number, as each connection to an upstream actually has two sockets. Then apply
-        # our multiplier.
-        keepalive_idle_connections = (
-            len(upstream_worker_ports) * 2 * keepalive_multiplier
-        )
+        if nginx_upstreams_config_dict["keepalive_global_enable"]:
+            # Need this to determine keepalive argument, need multiple of 2. Double the
+            # number, as each connection to an upstream actually has two sockets. Then apply
+            # our multiplier.
+            keepalive_idle_connections = (
+                len(upstream_worker_ports)
+                * 2
+                * nginx_upstreams_config_dict["keepalive_connection_multiplier"]
+            )
+
+            body += f"    keepalive {keepalive_idle_connections};\n"
+            body += f"    keepalive_timeout {nginx_upstreams_config_dict['keepalive_timeout']};\n"
 
         # Everything else, just use the default basic round-robin scheme.
         nginx_upstream_config += NGINX_UPSTREAM_CONFIG_BLOCK.format(
             upstream_name=upstream_name,
             body=body,
-            keepalive_idle_connections=keepalive_idle_connections,
         )
 
     # Finally, we'll write out the config files.
@@ -1766,9 +1798,75 @@ def generate_worker_files(
 
     debug(f"main_entry_point_unix_socket: {main_entry_point_unix_socket}")
 
-    # Nginx config
+    # Main Nginx configuration
+    # Let's preprocess a few things to allow cleaner configuration.
+    proxy_buffering_enabled = os.environ.get("NGINX_PROXY_BUFFERING", "on")
+    nginx_page_size = int(os.environ.get("NGINX_GENERAL_PAGE_SIZE_BYTES", 4096))
+    # Grab this early, in case the proxy buffer system is disabled, if we don't the
+    # client body buffer is going to be HUGE
+    client_body_buffer_size = os.environ.get(
+        "NGINX_CLIENT_BODY_BUFFER_SIZE_BYTES", 1024 * nginx_page_size
+    )
+    client_keepalive_enabled = (getenv_bool("NGINX_CLIENT_KEEPALIVE_ENABLE", True),)
+    proxy_buffering_disabled_page_multiplier = int(
+        os.environ.get("NGINX_PROXY_BUFFERING_DISABLED_PAGE_MULTIPLIER", 1)
+    )
+
+    # Since some proxy buffering size variables are considered multiples of above, use
+    # above to set the value unless specifically overridden.
+    nginx_file_config_dict: Dict[str, Any] = {
+        "worker_connections": os.environ.get("NGINX_WORKER_CONNECTIONS", 2048),
+        "worker_processes": os.environ.get("NGINX_WORKER_PROCESSES", "auto"),
+        "gzip_comp_level": os.environ.get("NGINX_GZIP_COMP_LEVEL", 1),
+        "gzip_http_version": os.environ.get("NGINX_GZIP_HTTP_VERSION", 1.1),
+        "gzip_min_length": os.environ.get("NGINX_GZIP_MIN_LENGTH", 200),
+        "map_hash_max_size": os.environ.get(
+            "NGINX_MAP_HASH_MAX_SIZE", count_of_hash_requiring_workers * 1024 * 4
+        ),
+        "client_body_buffer_size": client_body_buffer_size,
+        "client_keepalive_timeout": os.environ.get(
+            "NGINX_CLIENT_KEEPALIVE_TIMEOUT_SECONDS", 60
+        )
+        if client_keepalive_enabled
+        else 0,
+        "client_max_body_size": os.environ.get(
+            "SYNAPSE_MAX_UPLOAD_SIZE", "50M".lower()
+        ),
+        "proxy_buffering": proxy_buffering_enabled,
+        "proxy_request_buffering": os.environ.get(
+            "NGINX_PROXY_REQUEST_BUFFERING", "on"
+        ),
+        # Allow for inflating the size of the response memory structure if proxy
+        # buffering is disabled.
+        "proxy_buffer_page_size": (
+            nginx_page_size * proxy_buffering_disabled_page_multiplier
+        )
+        if proxy_buffering_enabled == "off"
+        else nginx_page_size,
+        "proxy_buffer_size": os.environ.get(
+            "NGINX_PROXY_BUFFER_SIZE_BYTES",
+            nginx_page_size,
+        ),
+        "proxy_busy_buffers_size": os.environ.get(
+            "NGINX_PROXY_BUSY_BUFFERS_SIZE_BYTES",
+            nginx_page_size * 2,
+        ),
+        "proxy_temp_file_write_size": os.environ.get(
+            "NGINX_PROXY_TEMP_FILE_WRITE_SIZE_BYTES", nginx_page_size * 2
+        ),
+        "proxy_read_timeout": os.environ.get("NGINX_PROXY_READ_TIMEOUT", 60),
+    }
+
     convert(
         "/conf/nginx.conf.j2",
+        "/etc/nginx/nginx.conf",
+        mode="w",
+        config=nginx_file_config_dict,
+    )
+
+    # Nginx location config for Synapse
+    convert(
+        "/conf/synapse-nginx.conf.j2",
         "/etc/nginx/conf.d/matrix-synapse.conf",
         worker_locations=nginx_location_config,
         upstream_directives=nginx_upstream_config,
@@ -1783,6 +1881,7 @@ def generate_worker_files(
         main_proxy_pass_cli_port=MAIN_PROCESS_NEW_CLIENT_PORT,
         # Part of the SYNAPSE_HTTP_FED_PORT experiment. Empty is ok here.
         main_proxy_pass_fed_port=MAIN_PROCESS_NEW_FEDERATION_PORT,
+        config=nginx_upstreams_config_dict,
     )
 
     # Prometheus config, if enabled

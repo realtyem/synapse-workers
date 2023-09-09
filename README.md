@@ -110,8 +110,8 @@ Paths to map to somewhere as volumes
 Anything in this section can be enabled by giving it a value of  'yes', 'y', '1', 'true', 't', 
 or 'on'. Anything else is a 'no'
 * *SYNAPSE_METRICS*: This not only is part of the generation of the initial homeserver.yaml file,
-  but will also enable the builtin prometheus service and add the necessary bits
-  to Synapse to expose metrics.
+  but will also enable the builtin prometheus service, enable collection of Nginx metrics
+  and add the necessary bits to Synapse to expose metrics.
 * *SYNAPSE_METRICS_UNIX_SOCKETS*: Enable Unix socket scraping support. **IMPORTANT NOTE**:
   this does not currently work as Prometheus does not support scraping a Unix socket for
   general scraping. See [issue](github.com/prometheus/prometheus/issues/12024) for details.
@@ -151,3 +151,96 @@ Grafana dashboards are provided in the contrib directory of the source repo.<br>
 * *PROMETHEUS_SCRAPE_INTERVAL*: Defaults to 15 seconds, allows the built-in Prometheus
   scrape interval to be changed. This will be set to the global `scrape_interval` as well
   as the one for the Synapse job.
+* **
+## Nginx configuration
+The built-in reverse proxy has defaults that are sane for a generic webserver/remote
+proxy. This is not optimized for Synapse. We can do better.
+* *NGINX_WORKER_PROCESSES*: Number of Nginx worker processes created. Defaults to
+  "auto", which should be the number of CPU cores(including logical processors. *NOTE*:
+  This will not honor docker container restriction on cpu. You will need to set this
+  explicitly.
+* *NGINX_WORKER_CONNECTIONS*: Number of simultaneous connections(client, remote server
+  and Synapse workers/main process) per Nginx worker. Compilation default is 512. New
+  default is 2048.
+* *NGINX_GENERAL_PAGE_SIZE_BYTES*: The main size tunable, defaults to 4k(4096). Most
+  other buffer size variables are multipliers of this number, so allow adjusting all of
+  them at once with a single tunable. Fine-tuning, if required, is below.
+
+### Connection compression
+The default gzip buffer settings is 32 4k, so we will allow adjusting this by
+piggy-backing on `NGINX_GENERAL_PAGE_SIZE_BYTES` in a following section
+* *NGINX_GZIP_COMP_LEVEL*: The compression level of responses. Default is 1. Higher is
+  more compressed at the expense of more CPU used. Tradeoffs above 1 didn't seem worth
+  the additional CPU.
+* *NGINX_GZIP_HTTP_VERSION*: Normally, Nginx will only serve a gzipped response if the
+  HTTP version is 1.1 or higher. This allows lowering that threshold. Defaults to 1.1
+* *NGINX_GZIP_MIN_LENGTH*: If a response is smaller than this(in bytes), just send it.
+  Normal default is 20, which is really tiny and a waste of time to try and compress.
+  New default is 200, but could probably put this at a MTU frame size for efficiency.
+
+### Keep-alives
+Nginx has support for HTTP 1.1 persistent connections for both client requests and
+upstreams. Both are now enabled by default.
+#### Client Request Keep-alives
+* *NGINX_CLIENT_KEEPALIVE_ENABLE*: Defaults to True. Must be `True` or `False`. Sets
+  `NGINX_CLIENT_KEEPALIVE_TIMEOUT_SECONDS` to `0`, which according to Nginx docs is the
+  correct way to disable keep-alives from requests of this kind.
+* *NGINX_CLIENT_KEEPALIVE_TIMEOUT_SECONDS*: Defaults to 60 seconds. This will close the
+  socket if no traffic has occurred in this much time.
+
+#### Upstream Keep-alives
+The number of keep-alive connections is intentionally kept low, as
+documentation suggests that it is a *per host* and not a global setting. Docs also
+suggest that each upstream gets 2 connections, one from the incoming client request and
+another to connect to the upstream. So, the formula is:
+
+(number_of_given_worker_type * 2 * `NGINX_KEEPALIVE_CONNECTION_MULTIPLIER`)
+
+* *NGINX_UPSTREAM_KEEPALIVE_ENABLE*: Defaults to True. Must be `True` or `False`. Allows
+  for removal of all keepalive statements for debugging. Nginx recommends having this
+  enabled.
+* *NGINX_UPSTREAM_KEEPALIVE_TIMEOUT_SECONDS*: Defaults to 60 seconds. This will close
+  the socket if no traffic has occurred in this much time.
+* *NGINX_UPSTREAM_KEEPALIVE_CONNECTION_MULTIPLIER*: A keepalive multiplier, this gets multiplied
+  by the number of server lines in a given upstream. This value is a maximum number of
+  idle connections to keepalive. Default is 1, more did not seem to help during testing.
+
+### Proxy Buffering
+* *NGINX_PROXY_BUFFERING*: Defaults to "on", change to "off" to disable buffering of
+  responses from Synapse to clients. See also `NGINX_PROXY_BUFFER_SIZE_BYTES` below.
+* *NGINX_PROXY_REQUEST_BUFFERING*: Defaults to "on", change to "off" to disable
+  buffering of requests from clients to Synapse. This enables the usage of
+  `NGINX_CLIENT_BODY_BUFFER_SIZE_BYTES` below.
+
+#### Proxy Buffering fine-tuning
+* *NGINX_PROXY_BUFFER_SIZE_BYTES*: The initial buffer for a response is this big,
+  defaults to `NGINX_GENERAL_PAGE_SIZE_BYTES`. **However**, if `NGINX_PROXY_BUFFERING` is
+  disabled, it will default to `NGINX_PROXY_BUFFERING_DISABLED_PAGE_MULTIPLIER` * `NGINX_GENERAL_PAGE_SIZE_BYTES` instead.
+* *NGINX_PROXY_BUFFERING_DISABLED_PAGE_MULTIPLIER*: If proxy buffering is disabled, use
+  this multiplier to calculate the allowed memory space. Defaults to 1.
+* *NGINX_PROXY_BUSY_BUFFERS_SIZE_BYTES*: The effective lock size for the currently being
+  filled from upstream buffer. Defaults to 2 * `NGINX_GENERAL_PAGE_SIZE_BYTES`
+* *NGINX_PROXY_TEMP_FILE_WRITE_SIZE_BYTES*: When a response is to large to fit into the
+  proxy buffer, it is written to a temporary file. This determines how much data is
+  written at once. Defaults to 2 * `NGINX_GENERAL_PAGE_SIZE_BYTES`
+* *NGINX_CLIENT_BODY_BUFFER_SIZE_BYTES*: While not strictly a proxy buffering variable,
+  it is related because of proxying of requests to an upstream. This allows for large
+  incoming requests to not be written to a temporary file before being proxied. Defaults
+  to 1024 * `NGINX_GENERAL_PAGE_SIZE_BYTES`. The math that rationalizes this has to do
+  with maximum incoming PDU and EDU sizes and counts in a single Synapse `Transaction`,
+  and is more thoroughly documented in `nginx.conf.j2` in this repo.
+* *NGINX_PROXY_READ_TIMEOUT*: Defaults to "60s". Sometimes upstream responses can take
+  more than a minute between successive writes, use this to accommodate. Don't forget
+  the 's' to denote seconds.
+
+#### Further Notes about Nginx
+* The `SYNAPSE_MAX_UPLOAD_SIZE` above is also used to limit incoming traffic in Nginx.
+  This guard exists to prevent a DOS style attack against Synapse directly. While
+  Synapse has utilities to reject large uploads, they will not begin working until after
+  the transfer has completed. For example, someone uploads a 50GB image file to Synapse,
+  thereby taking up a huge amount of disk space *before* it is rejected and removed,
+  causing several systemic problems including database out-of-space errors.
+* Disabling proxy buffering is very strange in documentation. It allows it but seems to
+  do it anyways. I suppose the request/response has to be placed somewhere before
+  transferring on it's way. It speaks of it being synchronous in nature, which implies
+  that when enabled it is asynchronous.

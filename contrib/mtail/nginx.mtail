@@ -1,0 +1,38 @@
+counter http_requests_total by vhost, method, code, content_type, http_version
+counter http_requests_size_total by vhost, method, code, content_type, http_version
+counter http_request_duration_milliseconds_sum by vhost, method, code, content_type, http_version
+counter http_upstream_response_duration_milliseconds_sum by vhost, method, code, content_type, http_version
+counter http_upstream_connect_time_milliseconds_sum by vhost, method, code, content_type, http_version
+counter http_upstream_header_time_milliseconds_sum by vhost, method, code, content_type, http_version
+counter http_response_size_bytes_sum by vhost, method, code, content_type, http_version
+
+# log_format mtail '$server_name $remote_addr - $remote_user [$time_local] $request_length '
+#                  '"$request" $status $bytes_sent URT:$upstream_response_time $request_time '
+#                  '$upstream_connect_time $upstream_header_time "$http_referer" "$http_user_agent" "$content_type"';
+
+/^/ +
+/(?P<vhost>[0-9A-Za-z\.\-:]+) / +
+/(?P<remote_addr>[0-9A-Za-z\.\-:]+) / +
+/- / +
+/(?P<remote_user>[0-9A-Za-z\-]+) / +
+/(?P<time_local>\[\d{2}\/\w{3}\/\d{4}:\d{2}:\d{2}:\d{2} [\-\+]\d{4}\]) / +
+/(?P<request_length>\d+) / +
+/"(?P<request_method>[A-Z]+) (?P<request_uri>\S+) (?P<http_version>HTTP\/[0-9\.]+)" / +
+/(?P<status>\d{3}) / +
+/(?P<bytes_sent>\d+) / +
+/URT:(?P<upstream_response_time_seconds>\d+)\.(?P<upstream_response_time_milliseconds>\d+) / +
+/(?P<request_seconds>\d+)\.(?P<request_milliseconds>\d+) / +
+/(?P<upstream_connect_seconds>\d+)\.(?P<upstream_connect_milliseconds>\d+) / +
+/(?P<upstream_header_seconds>\d+)\.(?P<upstream_header_milliseconds>\d+) / +
+/"(?P<http_referer>\S+)" / +
+/"(?P<http_user_agent>[[:print:]]+)" / +
+/"(?P<content_type>[^;\\]+)(;.*)?"/ +
+/$/ {
+  http_requests_total[$vhost][tolower($request_method)][$status][$content_type][$http_version]++
+  http_requests_size_total[$vhost][tolower($request_method)][$status][$content_type][$http_version] += $request_length
+  http_request_duration_milliseconds_sum[$vhost][tolower($request_method)][$status][$content_type][$http_version] += $request_seconds * 1000 + $request_milliseconds
+  http_upstream_response_duration_milliseconds_sum[$vhost][tolower($request_method)][$status][$content_type][$http_version] += $upstream_response_time_seconds * 1000 + $upstream_response_time_milliseconds
+  http_upstream_connect_time_milliseconds_sum[$vhost][tolower($request_method)][$status][$content_type][$http_version] += $upstream_connect_seconds * 1000 + $upstream_connect_milliseconds
+  http_upstream_header_time_milliseconds_sum[$vhost][tolower($request_method)][$status][$content_type][$http_version] += $upstream_header_seconds * 1000 + $upstream_header_milliseconds
+  http_response_size_bytes_sum[$vhost][tolower($request_method)][$status][$content_type][$http_version] += $bytes_sent
+}

@@ -1,0 +1,98 @@
+# This file contains the base config for the reverse proxy, as part of ../Dockerfile-workers.
+# configure_workers_and_start.py uses and amends to this file depending on the workers
+# that have been selected.
+
+log_format backend '[$time_local] - $proxy_add_x_forwarded_for - URT:$upstream_response_time request_time $request_time $status $upstream_addr: $request';
+
+# This log format is used for the mtail metrics scraping from the log. Both this and the
+# one above get written to logs.
+log_format mtail '$host $remote_addr - $remote_user [$time_local] $request_length '
+                 '"$request" $status $body_bytes_sent URT:$upstream_response_time $request_time '
+                 '$upstream_connect_time $upstream_header_time "$http_referer" "$http_user_agent" "$content_type"';
+
+# This will only be used by the client_reader worker, if one is not requested and the
+# main process handles this end point then it will not be used
+map $request_uri $room_name {
+    ~^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/([^/]+)/messages.*$ $2;
+}
+
+# The synchrotron worker can load balance requests based on the user id portion of the
+# access token.
+map $http_authorization $user_id {
+    default                           $http_authorization;
+    "~Bearer syt_(?<username>.*?)_.*" $username;
+}
+
+upstream main_synapse_process {
+    # Several theoretical optimizations are in this block(and subsequently in the
+    # procedurally generated ones as well).
+    # zone *shared_memory_zone_name* *size*
+    # https://nginx.org/en/docs/http/ngx_http_upstream_module.html#zone
+    # keepalive *number*
+    # https://nginx.org/en/docs/http/ngx_http_upstream_module.html#keepalive
+    zone upstreams 512K;
+{% if enable_proxy_to_unix_socket %}
+    server unix:/run/main_public.sock;
+{% else %}
+    server localhost:{{ main_proxy_pass_cli_port }};
+{% endif %}
+{% if config.keepalive_global_enable %}
+    keepalive 2;
+    keepalive_timeout {{ config.keepalive_timeout }};
+{% endif %}
+}
+
+{{ upstream_directives }}
+
+server {
+    # Listen on an unoccupied port number, traditionally 8008. This is pulled in from
+    # your existing(or just created) homeserver.yaml file. This should allow you to not
+    # have to change any ports set up in your docker image
+    listen {{ original_client_listener_port or '8008' }} so_keepalive=300:65:5;
+    listen [::]:{{ original_client_listener_port or '8008' }}  so_keepalive=300:65:5;
+{%- if main_entry_point_unix_socket is not none %}
+    listen unix:{{ main_entry_point_unix_socket }}  so_keepalive=300:65:5;
+{% endif -%}
+{% if tls_cert_path is not none and tls_key_path is not none %}
+    # this allows for:
+    # 1. Piping in a federation port directly if you have TlS certs in place. This is
+    #    no longer recommended practice, as TLS validation in Synapse isn't the best.
+    #    You should be using an external reverse proxy for this, such as NPM or swag.
+    # 2. Backwards compatibility with Complement, which sets up TLS certs for tests
+    listen 8448 ssl;
+    listen [::]:8448 ssl;
+
+    ssl_certificate {{ tls_cert_path }};
+    ssl_certificate_key {{ tls_key_path }};
+
+    # Some directives from cipherlist.eu (fka cipherli.st):
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers "EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH";
+    ssl_ecdh_curve secp384r1; # Requires nginx >= 1.1.0
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_tickets off; # Requires nginx >= 1.5.9
+{% endif %}
+
+    server_name localhost;
+
+    access_log /var/log/nginx/synapse.log backend;
+    access_log /var/log/nginx/access.log mtail;
+    error_log /var/log/nginx/error.log warn;
+
+{{ worker_locations }}
+
+    # Send all other traffic to the main process. This is safe, in the case of
+    # /_synapse/replication/, because it is actually on a different port.
+    location ~* ^(\\/_matrix|\\/_synapse) {
+        # This is proxied into the upstream defined above to take advantage of
+        # features inherent from HTTP 1.1
+        proxy_pass http://main_synapse_process;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Host $host;
+{% if config.keepalive_global_enable %}
+        proxy_set_header Connection "";
+{% endif %}
+    }
+}

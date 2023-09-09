@@ -92,6 +92,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libwebp6 \
       nano \
       openssl \
+      prometheus-nginx-exporter \
       wget \
       xmlsec1 \
       && rm -rf /var/lib/apt/lists/*
@@ -117,7 +118,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install supervisor~=4.2
 
 # Copy over redis and nginx
- COPY --from=redis_base /usr/local/bin/keydb-server /usr/local/bin
+COPY --from=redis_base /usr/local/bin/keydb-server /usr/local/bin
 
 COPY --from=deps_base /usr/sbin/nginx /usr/sbin
 COPY --from=deps_base /usr/share/nginx /usr/share/nginx
@@ -130,6 +131,7 @@ COPY --from=deps_base /usr/bin/prometheus /usr/bin
 COPY --from=deps_base /usr/share/prometheus/* /usr/share/prometheus
 # And Synapse's Prometheus rule file
 COPY /contrib/prometheus/synapse-V2.rules /etc/prometheus
+COPY /contrib/mtail/ /conf/mtail/
 
 COPY --from=tools /out /
 
