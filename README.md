@@ -182,13 +182,11 @@ piggy-backing on `NGINX_GENERAL_PAGE_SIZE_BYTES` in a following section
 Nginx has support for HTTP 1.1 persistent connections for both client requests and
 upstreams. Both are now enabled by default.
 #### Client Request Keep-alives
-* *NGINX_CLIENT_KEEPALIVE_ENABLE*: Defaults to True. Must be `True` or `False`. For
-  connections from clients **ONLY**. Sets `NGINX_CLIENT_KEEPALIVE_TIMEOUT_SECONDS` to
-  `0`, which according to Nginx docs is the correct way to disable keep-alives from
-  requests of this kind.
-* *NGINX_CLIENT_KEEPALIVE_TIMEOUT_SECONDS*: Defaults to 60 seconds. Check your `sysctl`
-  settings at `net.ipv4.tcp_keepalive_timeout` for what your OS is giving you and
-  stay less than that. Mine for example is 75 seconds.
+* *NGINX_CLIENT_KEEPALIVE_ENABLE*: Defaults to True. Must be `True` or `False`. Sets
+  `NGINX_CLIENT_KEEPALIVE_TIMEOUT_SECONDS` to `0`, which according to Nginx docs is the
+  correct way to disable keep-alives from requests of this kind.
+* *NGINX_CLIENT_KEEPALIVE_TIMEOUT_SECONDS*: Defaults to 60 seconds. This will close the
+  socket if no traffic has occurred in this much time.
 
 #### Upstream Keep-alives
 The number of keep-alive connections is intentionally kept low, as
@@ -198,12 +196,11 @@ another to connect to the upstream. So, the formula is:
 
 (number_of_given_worker_type * 2 * `NGINX_KEEPALIVE_CONNECTION_MULTIPLIER`)
 
-* *NGINX_UPSTREAM_KEEPALIVE_ENABLE*: Defaults to True. Must be `True` or `False`. For connections
-  to upstreams **ONLY**. Allows for removal of all keepalive statements for debugging.
-  Nginx recommends having this enabled.
-* *NGINX_UPSTREAM_KEEPALIVE_TIMEOUT_SECONDS*: Defaults to 60 seconds. Check your `sysctl`
-  settings at `net.ipv4.tcp_keepalive_timeout` for what your OS is giving you and
-  stay less than that. Mine for example is 75 seconds.
+* *NGINX_UPSTREAM_KEEPALIVE_ENABLE*: Defaults to True. Must be `True` or `False`. Allows
+  for removal of all keepalive statements for debugging. Nginx recommends having this
+  enabled.
+* *NGINX_UPSTREAM_KEEPALIVE_TIMEOUT_SECONDS*: Defaults to 60 seconds. This will close
+  the socket if no traffic has occurred in this much time.
 * *NGINX_UPSTREAM_KEEPALIVE_CONNECTION_MULTIPLIER*: A keepalive multiplier, this gets multiplied
   by the number of server lines in a given upstream. This value is a maximum number of
   idle connections to keepalive. Default is 1, more did not seem to help during testing.
