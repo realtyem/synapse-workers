@@ -135,8 +135,6 @@ http {
     ##
     #   Keep-Alives for Clients
     ##
-    # Connection needs to be cleared, or keep-alive doesn't.
-    proxy_set_header "Connection" "";
     # This is only for TCP connections, and is harmless to leave enabled otherwise. Docs
     # suggest it is only for connecting to upstreams.
     proxy_socket_keepalive on;
