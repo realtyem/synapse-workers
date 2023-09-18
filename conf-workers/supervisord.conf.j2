@@ -19,7 +19,7 @@ username=www-data
 autorestart=true
 
 [program:keydb]
-command=/usr/local/bin/prefix-log /usr/local/bin/keydb-server --unixsocket /dev/shm/redis.sock --server-threads 8
+command=/usr/local/bin/prefix-log /usr/bin/keydb-server --unixsocket /dev/shm/redis.sock --server-threads 8
 priority=1
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
