@@ -90,12 +90,12 @@ exitcodes=0
 [program:cron]
 priority = 500
 command = /usr/local/bin/prefix-log /usr/sbin/cron -f -L 15
-autorestart = unexpected
-autostart={{ enable_compressor }}
-stdout_logfile =/dev/stdout
-stdout_logfile_maxbytes=0
-stderr_logfile=/dev/stderr
-stderr_logfile_maxbytes=0
+autorestart = true
+autostart = true
+stdout_logfile = /dev/stdout
+stdout_logfile_maxbytes = 0
+stderr_logfile = /dev/stderr
+stderr_logfile_maxbytes = 0
 
 [program:coturn]
 priority = 500
