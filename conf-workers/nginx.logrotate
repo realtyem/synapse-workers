@@ -1,0 +1,9 @@
+/var/log/nginx/mtail.log {
+    daily
+    rotate 1
+    copytruncate
+    compress
+    delaycompress
+    notifempty
+    missingok
+}
