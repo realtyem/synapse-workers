@@ -2003,6 +2003,7 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
         getenv_bool("SYNAPSE_ENABLE_POSTGRES_METRIC_EXPORT", False)
         and "POSTGRES_PASSWORD" in environ
     )
+    disable_nginx_logrotate = getenv_bool("NGINX_DISABLE_LOGROTATE", False)
 
     # override SYNAPSE_NO_TLS, we don't support TLS in worker mode,
     # this needs to be handled by a frontend proxy
@@ -2085,6 +2086,18 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
                 stdout=subprocess.PIPE,
             ).stdout.decode("utf-8")
 
+        if not disable_nginx_logrotate:
+            # This is the default. Add the file into the logrotate directory
+            subprocess.run(
+                ["cp", "/conf/nginx.logrotate", "/etc/logrotate.d"],
+                stdout=subprocess.PIPE,
+            ).stdout.decode("utf-8")
+
+        else:
+            subprocess.run(
+                ["rm", "/etc/logrotate.d/nginx.logrotate"],
+                stdout=subprocess.PIPE,
+            )
         # Make postgres_exporter custom script if enabled in environment.
         if enable_postgres_exporter is True:
             convert(
