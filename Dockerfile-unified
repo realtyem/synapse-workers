@@ -93,6 +93,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       libpq5 \
       libssl-dev \
       libwebp7 \
+      logrotate \
       nano \
       openssl \
       prometheus-nginx-exporter \
