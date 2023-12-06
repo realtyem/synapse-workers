@@ -1,2 +1,2 @@
 #!/bin/sh
-synapse_auto_compressor -p postgresql://{{ postgres_user }}:{{ postgres_password }}@{{ postgres_host }}:{{ postgres_port }}/{{ postgres_db }} -c 500 -n 100
+synapse_auto_compressor -p 'postgresql://{{ postgres_user }}:{{ postgres_password }}@{{ postgres_db }}?host={{ postgres_host }}{{ "&port=" + postgres_port if postgres_port }}' -c 500 -n 100
