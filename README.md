@@ -244,3 +244,8 @@ another to connect to the upstream. So, the formula is:
   do it anyways. I suppose the request/response has to be placed somewhere before
   transferring on it's way. It speaks of it being synchronous in nature, which implies
   that when enabled it is asynchronous.
+* Part of the metrics acquisition process requires creating a special log file to scrape
+  for the data. This log file is internal to the container and is not exposed by default.
+  `logrotate` is used to keep the file to a more manageable level. Disable `logrotate`
+  by setting `NGINX_DISABLE_LOGROTATE` to a 'truthy' value and then you can manage this 
+  log file yourself.
