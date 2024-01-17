@@ -146,7 +146,7 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
             "^/_matrix/client/(r0|v3|unstable)/sync$",
             "^/_matrix/client/(api/v1|r0|v3)/events$",
             "^/_matrix/client/(api/v1|r0|v3)/initialSync$",
-            # "^/_matrix/client/(api/v1|r0|v3)/rooms/[^/]+/initialSync$",
+            "^/_matrix/client/(api/v1|r0|v3)/rooms/[^/]+/initialSync$",
         ],
         "shared_extra_conf": {},
         "worker_extra_conf": "",
