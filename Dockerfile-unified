@@ -132,6 +132,7 @@ COPY --from=nginx_base /usr/share/nginx /usr/share/nginx
 COPY --from=nginx_base /usr/lib/nginx /usr/lib/nginx
 COPY --from=nginx_base /usr/lib/x86_64-linux-gnu/libssl.so.1.1 /usr/lib/x86_64-linux-gnu/libcrypto.so.1.1 /usr/lib/x86_64-linux-gnu/
 COPY --from=nginx_base /etc/nginx /etc/nginx
+COPY --from=nginx_base /etc/init.d/nginx /etc/init.d/nginx
 RUN rm /etc/nginx/conf.d/default.conf
 
 # Copy over Prometheus. Should we bring the website files. It's 10's of MB's
