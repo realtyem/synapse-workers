@@ -21,13 +21,13 @@ jobs:
       - name: Fetch release version
         id: release_version
         run: |
-          curl -sL https://api.github.com/repos/matrix-org/synapse/releases/latest | \
+          curl -sL https://api.github.com/repos/element-hq/synapse/releases/latest | \
           echo "release_version=$( jq -r '.tag_name')" >> $GITHUB_OUTPUT
 
       - name: Fetch pre-release version
         id: prerelease_version
         run: |
-          curl -sL https://api.github.com/repos/matrix-org/synapse/releases | \
+          curl -sL https://api.github.com/repos/element-hq/synapse/releases | \
           echo "prerelease_version=$(jq -r 'map(select(.tag_name)) | first | .tag_name')" >> $GITHUB_OUTPUT
 
       - name: Check recorded versions
