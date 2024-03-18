@@ -1,6 +1,6 @@
 /var/log/nginx/mtail.log {
     daily
-    rotate 1
+    rotate 0
     copytruncate
     compress
     delaycompress
@@ -10,7 +10,7 @@
 
 /var/log/nginx/access.log {
     daily
-    rotate 7
+    rotate 0
     copytruncate
     compress
     delaycompress
