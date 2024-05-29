@@ -76,7 +76,7 @@ autorestart=unexpected
 autostart={{ enable_prometheus }}
 
 [program:prometheus]
-command=/usr/local/bin/prefix-log /usr/bin/prometheus --web.listen-address="0.0.0.0:9090" --config.file="/etc/prometheus/prometheus.yml" --storage.tsdb.retention.time=1y --storage.tsdb.wal-compression  --storage.remote.read-sample-limit=0  --storage.remote.read-concurrent-limit=0 --query.max-concurrency=9999
+command=/usr/local/bin/prefix-log /usr/bin/prometheus --web.listen-address="0.0.0.0:9090" --config.file="/etc/prometheus/prometheus.yml" --storage.tsdb.retention.time={{ prometheus_storage_retention_time }} --storage.tsdb.wal-compression  --storage.remote.read-sample-limit=0  --storage.remote.read-concurrent-limit=0 --query.max-concurrency=9999
 priority=10
 # Log startup failures to supervisord's stdout/err
 stdout_logfile=/dev/stdout
