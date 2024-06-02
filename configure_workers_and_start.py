@@ -1926,6 +1926,7 @@ def generate_worker_files(
         enable_prometheus=enable_prometheus,
         enable_compressor=enable_compressor,
         enable_coturn=enable_coturn,
+        prometheus_storage_retention_time=prometheus_storage_retention_time
     )
 
     convert(
@@ -1990,6 +1991,7 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
     global enable_prometheus
     global enable_redis_exporter
     global enable_postgres_exporter
+    global prometheus_storage_retention_time
     enable_compressor = (
         getenv_bool("SYNAPSE_ENABLE_COMPRESSOR", False)
         and "POSTGRES_PASSWORD" in environ
@@ -2003,6 +2005,10 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
     enable_postgres_exporter = (
         getenv_bool("SYNAPSE_ENABLE_POSTGRES_METRIC_EXPORT", False)
         and "POSTGRES_PASSWORD" in environ
+    )
+    prometheus_storage_retention_time = (
+        os.getenv("PROMETHEUS_STORAGE_RETENTION_TIME", "1y")
+        and enable_prometheus is True
     )
     disable_nginx_logrotate = getenv_bool("NGINX_DISABLE_LOGROTATE", False)
 
