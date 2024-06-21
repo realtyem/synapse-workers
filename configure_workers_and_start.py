@@ -2006,10 +2006,10 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
         getenv_bool("SYNAPSE_ENABLE_POSTGRES_METRIC_EXPORT", False)
         and "POSTGRES_PASSWORD" in environ
     )
-    prometheus_storage_retention_time = (
-        os.getenv("PROMETHEUS_STORAGE_RETENTION_TIME", "1y")
-        and enable_prometheus is True
-    )
+    if enable_prometheus is True:
+      prometheus_storage_retention_time = str(
+          os.getenv("PROMETHEUS_STORAGE_RETENTION_TIME", "1y")
+      )
     disable_nginx_logrotate = getenv_bool("NGINX_DISABLE_LOGROTATE", False)
 
     # override SYNAPSE_NO_TLS, we don't support TLS in worker mode,
