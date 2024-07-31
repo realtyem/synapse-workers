@@ -112,6 +112,7 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
         "listener_resources": ["media"],
         "endpoint_patterns": [
             "^/_matrix/media/",
+            "^/_matrix/client/v1/media/",
             "^/_synapse/admin/v1/purge_media_cache$",
             "^/_synapse/admin/v1/room/.*/media.*$",
             "^/_synapse/admin/v1/user/.*/media.*$",
