@@ -82,6 +82,8 @@ enable_coturn = False
 enable_prometheus = False
 enable_redis_exporter = False
 enable_postgres_exporter = False
+# Set this default to reflect the same as loaded below, so no juggling of types is needed
+prometheus_storage_retention_time = "1y"
 
 # Workers with exposed endpoints needs either "client", "federation", or "media"
 #   listener_resources
@@ -1928,7 +1930,7 @@ def generate_worker_files(
         enable_prometheus=enable_prometheus,
         enable_compressor=enable_compressor,
         enable_coturn=enable_coturn,
-        prometheus_storage_retention_time=prometheus_storage_retention_time
+        prometheus_storage_retention_time=prometheus_storage_retention_time,
     )
 
     convert(
@@ -2008,7 +2010,9 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
         getenv_bool("SYNAPSE_ENABLE_POSTGRES_METRIC_EXPORT", False)
         and "POSTGRES_PASSWORD" in environ
     )
-    prometheus_storage_retention_time = str(os.getenv("PROMETHEUS_STORAGE_RETENTION_TIME", "1y"))
+    prometheus_storage_retention_time = str(
+        os.getenv("PROMETHEUS_STORAGE_RETENTION_TIME", "1y")
+    )
 
     disable_nginx_logrotate = getenv_bool("NGINX_DISABLE_LOGROTATE", False)
 
