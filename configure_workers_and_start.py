@@ -647,9 +647,19 @@ class Workers:
         """
         self.worker[worker_name].listener_port_map[
             resource_name
-        ] = self.current_port_counter
-        # Increment the counter
+        ] = self.get_next_port_number()
+
+    def get_next_port_number(self) -> int:
+        """
+        Increment and return the port number counter. This will initially create a gap
+        at the beginning at the sequence as one number gets skipped over. Ignore it as
+        annoying but not world-breaking
+
+        Returns: int of the next port number to assign
+
+        """
         self.current_port_counter += 1
+        return self.current_port_counter
 
 
 class NginxConfig:
