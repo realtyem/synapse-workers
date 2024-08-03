@@ -356,6 +356,7 @@ class Worker:
             replication, media' etc.
         listener_port_map: Dict of 'listener':port_number so 'client':18900
         health_port: The port number for the /health endpoint
+        manhole_port: The port number for ssh-ing into a running synapse. Will not be a Unix socket
         metrics_port: The port number for the metrics endpoints
         endpoint_patterns: Dict of listener resource containing url endpoints this
             worker accepts connections on. Because a worker can merge multiple roles
@@ -375,6 +376,7 @@ class Worker:
     listener_resources: Set[str]
     listener_port_map: Dict[str, int]
     health_port: int
+    manhole_port: int
     metrics_port: int
     endpoint_patterns: Dict[str, Set[str]]
     shared_extra_config: Dict[str, Any]
@@ -407,6 +409,7 @@ class Worker:
         self.shared_extra_config = {}
         self.listener_port_map = defaultdict(int)
         self.health_port = 0
+        self.manhole_port = 0
         self.metrics_port = 0
         self.types_list = []
         self.worker_extra_conf = ""
@@ -1501,7 +1504,7 @@ def generate_worker_files(
 
         # Same for manholes
         if enable_manhole_workers:
-            worker.listener_resources.add("manhole")
+            worker.manhole_port = workers.get_next_port_number()
 
         # All workers get a health listener
         worker.health_port = workers.get_next_port_number()
@@ -1581,12 +1584,6 @@ def generate_worker_files(
                         worker.listener_port_map[listener], [listener], False, True
                     )
 
-            # The 'manhole' listener doesn't use 'http' as its type.
-            elif listener in ["manhole"]:
-                this_listener = {
-                    "type": listener,
-                    "port": worker.listener_port_map[listener],
-                }
             worker_listeners.setdefault("worker_listeners", []).append(this_listener)
 
         # Then do the health and metrics(if applicable)
@@ -1597,6 +1594,14 @@ def generate_worker_files(
                 (enable_public_unix_sockets or enable_replication_unix_sockets),
                 False,
             )
+            worker_listeners.setdefault("worker_listeners", []).append(this_listener)
+
+        # The 'manhole' listener doesn't use 'http' as its type.
+        if worker.manhole_port > 0:
+            this_listener = {
+                "type": "manhole",
+                "port": worker.manhole_port,
+            }
             worker_listeners.setdefault("worker_listeners", []).append(this_listener)
 
         if worker.metrics_port > 0:
