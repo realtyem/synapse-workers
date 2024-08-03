@@ -309,7 +309,6 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
 }
 
 HTTP_BASED_LISTENER_RESOURCES = [
-    "health",
     "client",
     "federation",
     "media",
@@ -356,6 +355,8 @@ class Worker:
         listener_resources: Set of types of listeners needed. 'client, federation,
             replication, media' etc.
         listener_port_map: Dict of 'listener':port_number so 'client':18900
+        health_port: The port number for the /health endpoint
+        metrics_port: The port number for the metrics endpoints
         endpoint_patterns: Dict of listener resource containing url endpoints this
             worker accepts connections on. Because a worker can merge multiple roles
             with potentially different listeners, this is important. e.g.
@@ -373,6 +374,8 @@ class Worker:
     app: str
     listener_resources: Set[str]
     listener_port_map: Dict[str, int]
+    health_port: int
+    metrics_port: int
     endpoint_patterns: Dict[str, Set[str]]
     shared_extra_config: Dict[str, Any]
     worker_extra_conf: str
@@ -403,6 +406,8 @@ class Worker:
         self.endpoint_patterns = defaultdict(set[str])
         self.shared_extra_config = {}
         self.listener_port_map = defaultdict(int)
+        self.health_port = 0
+        self.metrics_port = 0
         self.types_list = []
         self.worker_extra_conf = ""
         self.base_name = ""
@@ -1492,14 +1497,14 @@ def generate_worker_files(
 
         # If metrics is enabled, add a listener_resource for that
         if enable_metrics:
-            worker.listener_resources.add("metrics")
+            worker.metrics_port = workers.get_next_port_number()
 
         # Same for manholes
         if enable_manhole_workers:
             worker.listener_resources.add("manhole")
 
         # All workers get a health listener
-        worker.listener_resources.add("health")
+        worker.health_port = workers.get_next_port_number()
 
         # Add in ports for each listener entry(e.g. 'client', 'federation', 'media',
         # 'replication')
@@ -1513,14 +1518,12 @@ def generate_worker_files(
             # individualize the name of the file. We should never have to reference
             # these sockets directly, as that is what Nginx is doing for us.
             healthcheck_urls.append(
-                f"--unix-socket /run/worker.{worker.listener_port_map['health']} "
+                f"--unix-socket /run/worker.{worker.health_port} "
                 # Of the below URL, only the path is actually used, the rest is ignored.
                 "http://localhost/health"
             )
         else:
-            healthcheck_urls.append(
-                f"http://localhost:{worker.listener_port_map['health']}/health"
-            )
+            healthcheck_urls.append(f"http://localhost:{worker.health_port}/health")
 
         # Prepare the bits that will be used in the worker.yaml file
         worker_config = worker.extract_jinja_worker_template()
@@ -1572,46 +1575,54 @@ def generate_worker_files(
                         enable_public_unix_sockets,
                         True,
                     )
-                elif listener in ["health"]:
-                    this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener],
-                        [listener],
-                        (enable_public_unix_sockets or enable_replication_unix_sockets),
-                        False,
-                    )
                 else:
                     # This should be dead code now
                     this_listener = construct_worker_listener_block(
                         worker.listener_port_map[listener], [listener], False, True
                     )
-            elif listener in ["metrics"]:
-                # Metrics listeners are a strange sort, supporting both 'http' and a
-                # custom 'metrics' type. The 'http' type allows for compression and unix
-                # sockets, but at the expense of utiltizing the reactor to generate
-                # results(causing a delay in response).
-                # However, using the custom 'metrics' type allows a side-loaded
-                # webserver to handle the load of generating results, allowing for a
-                # much snappier response time. Unless we are trying to use Unix sockets,
-                # just use the custom type.
-                # Note: at this time, Prometheus does not support Unix sockets.
-                if enable_metrics_unix_socket:
-                    this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener],
-                        [listener],
-                        enable_metrics_unix_socket,
-                        True,
-                    )
-                else:
-                    this_listener = {
-                        "type": listener,
-                        "port": worker.listener_port_map[listener],
-                    }
+
             # The 'manhole' listener doesn't use 'http' as its type.
             elif listener in ["manhole"]:
                 this_listener = {
                     "type": listener,
                     "port": worker.listener_port_map[listener],
                 }
+            worker_listeners.setdefault("worker_listeners", []).append(this_listener)
+
+        # Then do the health and metrics(if applicable)
+        if worker.health_port > 0:
+            this_listener = construct_worker_listener_block(
+                worker.health_port,
+                ["health"],
+                (enable_public_unix_sockets or enable_replication_unix_sockets),
+                False,
+            )
+            worker_listeners.setdefault("worker_listeners", []).append(this_listener)
+
+        if worker.metrics_port > 0:
+            # Metrics listeners are a strange sort, supporting both 'http' and a
+            # custom 'metrics' type. The 'http' type allows for compression and unix
+            # sockets, but at the expense of utilising the reactor to generate
+            # results(causing a delay in response).
+            # However, using the custom 'metrics' type allows a side-loaded
+            # webserver to handle the load of generating results, allowing for a
+            # much snappier response time. Unless we are trying to use Unix sockets,
+            # just use the custom type.
+            # Note: at this time, Prometheus does not support Unix sockets.
+            if enable_metrics_unix_socket:
+                this_listener = construct_worker_listener_block(
+                    worker.metrics_port,
+                    ["metrics"],
+                    enable_metrics_unix_socket,
+                    True,
+                )
+
+            else:
+                this_listener = {
+                    "type": "metrics",
+                    "port": worker.metrics_port,
+                }
+
             worker_listeners.setdefault("worker_listeners", []).append(this_listener)
 
         # That's everything needed to construct the worker config file.
@@ -1904,7 +1915,7 @@ def generate_worker_files(
     if enable_prometheus:
         prom_endpoint_config = ""
         for _, worker in workers.worker.items():
-            worker_portpath_target_number = worker.listener_port_map["metrics"]
+            worker_portpath_target_number = worker.metrics_port
             metrics_target = (
                 f"/run/worker.{worker_portpath_target_number}"
                 if enable_metrics_unix_socket
