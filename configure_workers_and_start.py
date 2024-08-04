@@ -354,7 +354,6 @@ class Worker:
         app: 'synapse.app.generic_worker' for all now
         listener_resources: Set of types of listeners needed. 'client, federation,
             replication, media' etc.
-        listener_port_map: Dict of 'listener':port_number so 'client':18900
         main_port: The main port number for most primary listeners('client', 'federation', etc)
         health_port: The port number for the /health endpoint
         manhole_port: The port number for ssh-ing into a running synapse. Will not be a Unix socket
@@ -373,7 +372,6 @@ class Worker:
     index: int
     app: str
     listener_resources: Set[str]
-    listener_port_map: Dict[str, int]
     main_port: int
     health_port: int
     manhole_port: int
@@ -408,7 +406,6 @@ class Worker:
         self.listener_resources = set()
         self.endpoint_patterns = set()
         self.shared_extra_config = {}
-        self.listener_port_map = defaultdict(int)
         self.main_port = 0
         self.health_port = 0
         self.manhole_port = 0
