@@ -759,9 +759,6 @@ class NginxConfig:
 
             # This will be the name of the upstream
             new_nginx_upstream = f"{'-'.join(sorted(new_nginx_upstream_set))}"
-            new_nginx_upstream += (
-                f".{'-'.join(sorted(new_nginx_upstream_listener_set))}"
-            )
 
             # Check this upstream exists, if not then make it
             if new_nginx_upstream not in self.upstreams_to_ports:
