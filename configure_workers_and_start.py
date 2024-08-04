@@ -758,25 +758,18 @@ class NginxConfig:
         # Add nginx location blocks for this worker's endpoints (if any are defined)
         # Inappropriate types of listeners were already filtered out.
         for worker in workers.worker.values():
-            for listener_type, patterns in worker.endpoint_patterns.items():
-                for pattern in patterns:
-                    # Collect port numbers for this endpoint pattern
-                    locations_to_port_set.setdefault(pattern, set()).add(
-                        worker.listener_port_map[listener_type]
-                    )
-                # Set lookup maps to be used for combining upstreams in a moment.
-                # Need the worker's base name
-                port_to_upstream_name.setdefault(
-                    worker.listener_port_map[listener_type], worker.base_name
-                )
-                # The listener type
-                port_to_listener_type.setdefault(
-                    worker.listener_port_map[listener_type], listener_type
-                )
-                # And the list of roles this(possibly combination) worker can fill
-                self.upstreams_roles.setdefault(worker.base_name, set()).update(
-                    worker.types_list
-                )
+            for pattern in worker.endpoint_patterns:
+                # Collect port numbers for this endpoint pattern
+                locations_to_port_set.setdefault(pattern, set()).add(worker.main_port)
+
+            # Set lookup maps to be used for combining upstreams in a moment.
+            # Need the worker's base name
+            port_to_upstream_name.setdefault(worker.main_port, worker.base_name)
+
+            # And the list of roles this(possibly combination) worker can fill
+            self.upstreams_roles.setdefault(worker.base_name, set()).update(
+                worker.types_list
+            )
 
         for endpoint_pattern, port_set in locations_to_port_set.items():
             # Reset these for each run
