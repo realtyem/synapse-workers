@@ -1510,6 +1510,7 @@ def generate_worker_files(
         log_config_filepath = generate_worker_log_config(environ, worker.name, data_dir)
 
         # Build the worker_listener block for the worker.yaml
+        # TODO: worker_listeners should be a List, not a JsonDict. Fix
         worker_listeners: Dict[str, Any] = {}
         if worker.listener_resources:
             this_listener = construct_worker_listener_block(
