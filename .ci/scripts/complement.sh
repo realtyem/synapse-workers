@@ -187,8 +187,16 @@ fi
 
 extra_test_args=()
 
-test_tags="synapse_blacklist,msc3787,msc3874,msc3890,msc3391,msc3930,faster_joins"
-
+test_packages=(
+    ./tests/csapi
+    ./tests
+    ./tests/msc3874
+    ./tests/msc3890
+    ./tests/msc3391
+    ./tests/msc3930
+    ./tests/msc3902
+    ./tests/msc3967
+)
 # All environment variables starting with PASS_ will be shared.
 # (The prefix is stripped off before reaching the container.)
 export COMPLEMENT_SHARE_ENV_PREFIX=PASS_
@@ -227,7 +235,7 @@ else
 
   # The tests for importing historical messages (MSC2716)
   # only pass with monoliths, currently.
-  test_tags="$test_tags,msc2716"
+  # test_tags="$test_tags,msc2716"
 fi
 
 if [[ -n "$UNIX_SOCKETS" ]]; then
@@ -253,7 +261,7 @@ if [[ -n "$SYNAPSE_TEST_LOG_LEVEL" ]]; then
 fi
 
 # Run the tests!
-echo "Images built; running complement"
+echo "Images built; running complement with ${extra_test_args[@]} $@ ${test_packages[@]}"
 cd "$COMPLEMENT_DIR"
 
-go test -v -tags $test_tags -count=1 "${extra_test_args[@]}" "$@" ./tests/...
+go test -v -tags "synapse_blacklist" -count=1 "${extra_test_args[@]}" "$@" "${test_packages[@]}"
