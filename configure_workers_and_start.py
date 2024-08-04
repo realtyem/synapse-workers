@@ -360,10 +360,7 @@ class Worker:
         manhole_port: The port number for ssh-ing into a running synapse. Will not be a Unix socket
         metrics_port: The port number for the metrics endpoints
         replication_port: The port number for replication, if needed
-        endpoint_patterns: Dict of listener resource containing url endpoints this
-            worker accepts connections on. Because a worker can merge multiple roles
-            with potentially different listeners, this is important. e.g.
-            {'client':{'/url1','/url2'}}
+        endpoint_patterns: Set of url endpoints this worker watches. e.g. {'/url1','/url2'}
         shared_extra_config: Dict of one-offs that enable special roles for specific
             workers. Ends up in shared.yaml
         worker_extra_conf: Only used by media_repository to enable that functionality.
@@ -382,7 +379,7 @@ class Worker:
     manhole_port: int
     metrics_port: int
     replication_port: int
-    endpoint_patterns: Dict[str, Set[str]]
+    endpoint_patterns: Set[str]
     shared_extra_config: Dict[str, Any]
     worker_extra_conf: str
     types_list: List[str]
@@ -409,7 +406,7 @@ class Worker:
                     fulfill.
         """
         self.listener_resources = set()
-        self.endpoint_patterns = defaultdict(set[str])
+        self.endpoint_patterns = set()
         self.shared_extra_config = {}
         self.listener_port_map = defaultdict(int)
         self.main_port = 0
@@ -455,22 +452,8 @@ class Worker:
             if listener_resources:
                 self.listener_resources.update(listener_resources)
 
-            # Get the endpoint_patterns, add them to a set and assign to a dict key
-            # of listener_resource. Since any given worker role has exactly one
-            # external connection resource, figure out which one it is and use that
-            # as a key to identify the endpoint pattern to be assigned to it. This
-            # allows different resources to be split onto different ports and then
-            # merged with similar resources when worker roles are merged together.
-            lr: str = ""
-            for this_resource in listener_resources:
-                # Only look for these three, as endpoints shouldn't be assigned to
-                # something like a 'health' or 'replication' listener.
-                if this_resource in ["client", "federation", "media"]:
-                    lr = this_resource
-            endpoint_patterns = worker_config.get("endpoint_patterns")
-            if endpoint_patterns:
-                for endpoint in endpoint_patterns:
-                    self.endpoint_patterns[lr].add(endpoint)
+            endpoint_patterns = worker_config.get("endpoint_patterns", [])
+            self.endpoint_patterns.update(endpoint_patterns)
 
             # Get shared_extra_conf, if any
             shared_extra_config = worker_config.get("shared_extra_conf")
@@ -773,7 +756,6 @@ class NginxConfig:
         port_to_listener_type: Dict[int, str] = {}
 
         # Add nginx location blocks for this worker's endpoints (if any are defined)
-        # There are now the capability of having multiple types of listeners.
         # Inappropriate types of listeners were already filtered out.
         for worker in workers.worker.values():
             for listener_type, patterns in worker.endpoint_patterns.items():
