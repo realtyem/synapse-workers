@@ -355,9 +355,11 @@ class Worker:
         listener_resources: Set of types of listeners needed. 'client, federation,
             replication, media' etc.
         listener_port_map: Dict of 'listener':port_number so 'client':18900
+        main_port: The main port number for most primary listeners('client', 'federation', etc)
         health_port: The port number for the /health endpoint
         manhole_port: The port number for ssh-ing into a running synapse. Will not be a Unix socket
         metrics_port: The port number for the metrics endpoints
+        replication_port: The port number for replication, if needed
         endpoint_patterns: Dict of listener resource containing url endpoints this
             worker accepts connections on. Because a worker can merge multiple roles
             with potentially different listeners, this is important. e.g.
@@ -375,9 +377,11 @@ class Worker:
     app: str
     listener_resources: Set[str]
     listener_port_map: Dict[str, int]
+    main_port: int
     health_port: int
     manhole_port: int
     metrics_port: int
+    replication_port: int
     endpoint_patterns: Dict[str, Set[str]]
     shared_extra_config: Dict[str, Any]
     worker_extra_conf: str
@@ -408,9 +412,11 @@ class Worker:
         self.endpoint_patterns = defaultdict(set[str])
         self.shared_extra_config = {}
         self.listener_port_map = defaultdict(int)
+        self.main_port = 0
         self.health_port = 0
         self.manhole_port = 0
         self.metrics_port = 0
+        self.replication_port = 0
         self.types_list = []
         self.worker_extra_conf = ""
         self.base_name = ""
