@@ -889,7 +889,7 @@ def add_worker_roles_to_shared_config(
     shared_config: dict,
     worker_type_list: list,
     worker_name: str,
-    worker_ports: Dict[str, int],
+    worker_port: int,
     use_unix_socket: bool = False,
 ) -> None:
     """Given a dictionary representing a config file shared across all workers,
@@ -901,8 +901,7 @@ def add_worker_roles_to_shared_config(
         worker_type_list: The type of worker (one of those defined in WORKERS_CONFIG).
             This list can be a single worker type or multiple.
         worker_name: The name of the worker instance.
-        worker_ports: The dict of ports to find the HTTP replication port that the
-            worker instance is listening on.
+        worker_port: The replication port that the worker instance is listening on.
         use_unix_socket: If a socket path should be used instead of a host/port combo
     """
     # The instance_map config field marks the workers that write to various replication
@@ -946,18 +945,24 @@ def add_worker_roles_to_shared_config(
                 worker, []
             ).append(worker_name)
 
-        if "replication" in worker_ports.keys():
+        if "replication" in WORKERS_CONFIG.get(worker, {}).get(
+            "listener_resources", []
+        ):
             # Map of worker instance names to path or host/ports combos. If a worker
             # type in WORKERS_CONFIG needs to be added here in the future, just add a
             # 'replication' entry to the list in listener_resources for that worker.
+            # NOTE: in theory, the worker_port could be a 0 but that should not be the case
+            # as if a 'replication' listener is defined then this will be populated by the
+            # counter system
+            assert worker_port > 0
             if use_unix_socket:
                 instance_map[worker_name] = {
-                    "path": f"/run/worker.{worker_ports['replication']}",
+                    "path": f"/run/worker.{worker_port}",
                 }
             else:
                 instance_map[worker_name] = {
                     "host": "localhost",
-                    "port": worker_ports["replication"],
+                    "port": worker_port,
                 }
 
 
@@ -1549,12 +1554,12 @@ def generate_worker_files(
         )
 
         # Update the shared config with sharding-related options if any are found in the
-        # global shared_config.
+        # global shared_config. Recall that the port passed in should be for replication
         add_worker_roles_to_shared_config(
             shared_config,
             worker.types_list,
             new_worker_name,
-            worker.listener_port_map,
+            worker.replication_port,
             use_unix_socket=enable_replication_unix_sockets,
         )
 
