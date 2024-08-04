@@ -308,13 +308,6 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
     },
 }
 
-HTTP_BASED_LISTENER_RESOURCES = [
-    "client",
-    "federation",
-    "media",
-    "replication",
-]
-
 # Templates for sections that may be inserted multiple times in config files
 NGINX_LOCATION_CONFIG_BLOCK = """
     location ~* {endpoint} {{
@@ -627,20 +620,6 @@ class Workers:
                 pass
         self.worker[worker_name].shared_extra_config = dict_to_edit
 
-    def set_listener_port_by_resource(
-        self, worker_name: str, resource_name: str
-    ) -> None:
-        """
-        Simple helper to add to the listener_port_map and increment the counter of port
-        numbers. Will be borrowing the serialized incrementation for Unix Sockets also.
-
-        Args:
-            worker_name: Name of worker
-            resource_name: The listener resource this is for. e.g. 'client' or 'media'
-
-        """
-        self.worker[worker_name].main_port = self.get_next_port_number()
-
     def get_next_port_number(self) -> int:
         """
         Increment and return the port number counter. This will initially create a gap
@@ -746,12 +725,6 @@ class NginxConfig:
         #    e.g. {1234: "worker_base_name"}
         port_to_upstream_name: Dict[int, str] = {}
 
-        # port_to_listener_type: A map of port to worker's listener_type. Functionally,
-        #    not important, but used to append to the upstream name so visually can
-        #    identify what type of listener it's pointing to.
-        #    e.g. { 1234: "client" }
-        port_to_listener_type: Dict[int, str] = {}
-
         # Add nginx location blocks for this worker's endpoints (if any are defined)
         # Inappropriate types of listeners were already filtered out.
         for worker in workers.worker.values():
@@ -778,8 +751,7 @@ class NginxConfig:
             for each_port in port_set:
                 # Get the worker.base_name for the upstream name
                 new_nginx_upstream_set.add(port_to_upstream_name[each_port])
-                # Get the listener_type, as it's appended to the upstream name
-                new_nginx_upstream_listener_set.add(port_to_listener_type[each_port])
+
                 # Get the workers roles for specialized load-balancing
                 new_nginx_upstream_roles.update(
                     self.upstreams_roles[port_to_upstream_name[each_port]]
