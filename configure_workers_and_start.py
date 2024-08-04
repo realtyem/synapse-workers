@@ -659,9 +659,7 @@ class Workers:
             resource_name: The listener resource this is for. e.g. 'client' or 'media'
 
         """
-        self.worker[worker_name].listener_port_map[
-            resource_name
-        ] = self.get_next_port_number()
+        self.worker[worker_name].main_port = self.get_next_port_number()
 
     def get_next_port_number(self) -> int:
         """
@@ -1525,9 +1523,9 @@ def generate_worker_files(
             # Make sure to remove this one, don't need a double dip on port numbers
             worker.listener_resources.discard("replication")
 
-        # Add in ports for each listener entry(e.g. 'client', 'federation', 'media')
-        for listener_entry in worker.listener_resources:
-            workers.set_listener_port_by_resource(new_worker_name, listener_entry)
+        # Add in one port for all listener entries(e.g. 'client', 'federation', 'media')
+        if worker.listener_resources:
+            worker.main_port = workers.get_next_port_number()
 
         # Every worker gets a separate port or socket path to handle it's 'health'
         # resource. Append it to the list so docker can check it.
@@ -1572,32 +1570,14 @@ def generate_worker_files(
 
         # Build the worker_listener block for the worker.yaml
         worker_listeners: Dict[str, Any] = {}
-        for listener in worker.listener_resources:
-            this_listener: Dict[str, Any] = {}
-            if listener in HTTP_BASED_LISTENER_RESOURCES:
-                if listener in ["replication"]:
-                    this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener],
-                        [listener],
-                        enable_replication_unix_sockets,
-                        False,
-                    )
-                elif listener in [
-                    "client",
-                    "federation",
-                    "media",
-                ]:
-                    this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener],
-                        [listener],
-                        enable_public_unix_sockets,
-                        True,
-                    )
-                else:
-                    # This should be dead code now
-                    this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener], [listener], False, True
-                    )
+        if worker.listener_resources:
+            this_listener = construct_worker_listener_block(
+                worker.main_port,
+                list(worker.listener_resources),
+                enable_public_unix_sockets,
+                True,
+            )
+
             worker_listeners.setdefault("worker_listeners", []).append(this_listener)
 
         if worker.replication_port > 0:
