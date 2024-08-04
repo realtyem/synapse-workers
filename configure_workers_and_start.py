@@ -438,7 +438,7 @@ class Worker:
             self.app = str(worker_config.get("app"))
 
             # Get the listener_resources
-            listener_resources = worker_config.get("listener_resources")
+            listener_resources = worker_config.get("listener_resources", [])
             if listener_resources:
                 self.listener_resources.update(listener_resources)
 
