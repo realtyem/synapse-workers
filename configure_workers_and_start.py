@@ -1515,8 +1515,12 @@ def generate_worker_files(
         # All workers get a health listener
         worker.health_port = workers.get_next_port_number()
 
-        # Add in ports for each listener entry(e.g. 'client', 'federation', 'media',
-        # 'replication')
+        if "replication" in worker.listener_resources:
+            worker.replication_port = workers.get_next_port_number()
+            # Make sure to remove this one, don't need a double dip on port numbers
+            worker.listener_resources.discard("replication")
+
+        # Add in ports for each listener entry(e.g. 'client', 'federation', 'media')
         for listener_entry in worker.listener_resources:
             workers.set_listener_port_by_resource(new_worker_name, listener_entry)
 
@@ -1589,7 +1593,15 @@ def generate_worker_files(
                     this_listener = construct_worker_listener_block(
                         worker.listener_port_map[listener], [listener], False, True
                     )
+            worker_listeners.setdefault("worker_listeners", []).append(this_listener)
 
+        if worker.replication_port > 0:
+            this_listener = construct_worker_listener_block(
+                worker.replication_port,
+                ["replication"],
+                enable_replication_unix_sockets,
+                False,
+            )
             worker_listeners.setdefault("worker_listeners", []).append(this_listener)
 
         # Then do the health and metrics(if applicable)
