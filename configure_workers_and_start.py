@@ -111,7 +111,7 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
     },
     "media_repository": {
         "app": "synapse.app.generic_worker",
-        "listener_resources": ["media"],
+        "listener_resources": ["client", "federation", "media"],
         "endpoint_patterns": [
             "^/_matrix/media/",
             "^/_synapse/admin/v1/purge_media_cache$",
@@ -308,14 +308,6 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
     },
 }
 
-HTTP_BASED_LISTENER_RESOURCES = [
-    "health",
-    "client",
-    "federation",
-    "media",
-    "replication",
-]
-
 # Templates for sections that may be inserted multiple times in config files
 NGINX_LOCATION_CONFIG_BLOCK = """
     location ~* {endpoint} {{
@@ -355,11 +347,12 @@ class Worker:
         app: 'synapse.app.generic_worker' for all now
         listener_resources: Set of types of listeners needed. 'client, federation,
             replication, media' etc.
-        listener_port_map: Dict of 'listener':port_number so 'client':18900
-        endpoint_patterns: Dict of listener resource containing url endpoints this
-            worker accepts connections on. Because a worker can merge multiple roles
-            with potentially different listeners, this is important. e.g.
-            {'client':{'/url1','/url2'}}
+        main_port: The main port number for most primary listeners('client', 'federation', etc)
+        health_port: The port number for the /health endpoint
+        manhole_port: The port number for ssh-ing into a running synapse. Will not be a Unix socket
+        metrics_port: The port number for the metrics endpoints
+        replication_port: The port number for replication, if needed
+        endpoint_patterns: Set of url endpoints this worker watches. e.g. {'/url1','/url2'}
         shared_extra_config: Dict of one-offs that enable special roles for specific
             workers. Ends up in shared.yaml
         worker_extra_conf: Only used by media_repository to enable that functionality.
@@ -372,8 +365,12 @@ class Worker:
     index: int
     app: str
     listener_resources: Set[str]
-    listener_port_map: Dict[str, int]
-    endpoint_patterns: Dict[str, Set[str]]
+    main_port: int
+    health_port: int
+    manhole_port: int
+    metrics_port: int
+    replication_port: int
+    endpoint_patterns: Set[str]
     shared_extra_config: Dict[str, Any]
     worker_extra_conf: str
     types_list: List[str]
@@ -400,9 +397,13 @@ class Worker:
                     fulfill.
         """
         self.listener_resources = set()
-        self.endpoint_patterns = defaultdict(set[str])
+        self.endpoint_patterns = set()
         self.shared_extra_config = {}
-        self.listener_port_map = defaultdict(int)
+        self.main_port = 0
+        self.health_port = 0
+        self.manhole_port = 0
+        self.metrics_port = 0
+        self.replication_port = 0
         self.types_list = []
         self.worker_extra_conf = ""
         self.base_name = ""
@@ -437,26 +438,12 @@ class Worker:
             self.app = str(worker_config.get("app"))
 
             # Get the listener_resources
-            listener_resources = worker_config.get("listener_resources")
+            listener_resources = worker_config.get("listener_resources", [])
             if listener_resources:
                 self.listener_resources.update(listener_resources)
 
-            # Get the endpoint_patterns, add them to a set and assign to a dict key
-            # of listener_resource. Since any given worker role has exactly one
-            # external connection resource, figure out which one it is and use that
-            # as a key to identify the endpoint pattern to be assigned to it. This
-            # allows different resources to be split onto different ports and then
-            # merged with similar resources when worker roles are merged together.
-            lr: str = ""
-            for this_resource in listener_resources:
-                # Only look for these three, as endpoints shouldn't be assigned to
-                # something like a 'health' or 'replication' listener.
-                if this_resource in ["client", "federation", "media"]:
-                    lr = this_resource
-            endpoint_patterns = worker_config.get("endpoint_patterns")
-            if endpoint_patterns:
-                for endpoint in endpoint_patterns:
-                    self.endpoint_patterns[lr].add(endpoint)
+            endpoint_patterns = worker_config.get("endpoint_patterns", [])
+            self.endpoint_patterns.update(endpoint_patterns)
 
             # Get shared_extra_conf, if any
             shared_extra_config = worker_config.get("shared_extra_conf")
@@ -633,23 +620,17 @@ class Workers:
                 pass
         self.worker[worker_name].shared_extra_config = dict_to_edit
 
-    def set_listener_port_by_resource(
-        self, worker_name: str, resource_name: str
-    ) -> None:
+    def get_next_port_number(self) -> int:
         """
-        Simple helper to add to the listener_port_map and increment the counter of port
-        numbers. Will be borrowing the serialized incrementation for Unix Sockets also.
+        Increment and return the port number counter. This will initially create a gap
+        at the beginning at the sequence as one number gets skipped over. Ignore it as
+        annoying but not world-breaking
 
-        Args:
-            worker_name: Name of worker
-            resource_name: The listener resource this is for. e.g. 'client' or 'media'
+        Returns: int of the next port number to assign
 
         """
-        self.worker[worker_name].listener_port_map[
-            resource_name
-        ] = self.current_port_counter
-        # Increment the counter
         self.current_port_counter += 1
+        return self.current_port_counter
 
 
 class NginxConfig:
@@ -744,35 +725,21 @@ class NginxConfig:
         #    e.g. {1234: "worker_base_name"}
         port_to_upstream_name: Dict[int, str] = {}
 
-        # port_to_listener_type: A map of port to worker's listener_type. Functionally,
-        #    not important, but used to append to the upstream name so visually can
-        #    identify what type of listener it's pointing to.
-        #    e.g. { 1234: "client" }
-        port_to_listener_type: Dict[int, str] = {}
-
         # Add nginx location blocks for this worker's endpoints (if any are defined)
-        # There are now the capability of having multiple types of listeners.
         # Inappropriate types of listeners were already filtered out.
         for worker in workers.worker.values():
-            for listener_type, patterns in worker.endpoint_patterns.items():
-                for pattern in patterns:
-                    # Collect port numbers for this endpoint pattern
-                    locations_to_port_set.setdefault(pattern, set()).add(
-                        worker.listener_port_map[listener_type]
-                    )
-                # Set lookup maps to be used for combining upstreams in a moment.
-                # Need the worker's base name
-                port_to_upstream_name.setdefault(
-                    worker.listener_port_map[listener_type], worker.base_name
-                )
-                # The listener type
-                port_to_listener_type.setdefault(
-                    worker.listener_port_map[listener_type], listener_type
-                )
-                # And the list of roles this(possibly combination) worker can fill
-                self.upstreams_roles.setdefault(worker.base_name, set()).update(
-                    worker.types_list
-                )
+            for pattern in worker.endpoint_patterns:
+                # Collect port numbers for this endpoint pattern
+                locations_to_port_set.setdefault(pattern, set()).add(worker.main_port)
+
+            # Set lookup maps to be used for combining upstreams in a moment.
+            # Need the worker's base name
+            port_to_upstream_name.setdefault(worker.main_port, worker.base_name)
+
+            # And the list of roles this(possibly combination) worker can fill
+            self.upstreams_roles.setdefault(worker.base_name, set()).update(
+                worker.types_list
+            )
 
         for endpoint_pattern, port_set in locations_to_port_set.items():
             # Reset these for each run
@@ -784,8 +751,7 @@ class NginxConfig:
             for each_port in port_set:
                 # Get the worker.base_name for the upstream name
                 new_nginx_upstream_set.add(port_to_upstream_name[each_port])
-                # Get the listener_type, as it's appended to the upstream name
-                new_nginx_upstream_listener_set.add(port_to_listener_type[each_port])
+
                 # Get the workers roles for specialized load-balancing
                 new_nginx_upstream_roles.update(
                     self.upstreams_roles[port_to_upstream_name[each_port]]
@@ -793,9 +759,6 @@ class NginxConfig:
 
             # This will be the name of the upstream
             new_nginx_upstream = f"{'-'.join(sorted(new_nginx_upstream_set))}"
-            new_nginx_upstream += (
-                f".{'-'.join(sorted(new_nginx_upstream_listener_set))}"
-            )
 
             # Check this upstream exists, if not then make it
             if new_nginx_upstream not in self.upstreams_to_ports:
@@ -865,7 +828,7 @@ def add_worker_roles_to_shared_config(
     shared_config: dict,
     worker_type_list: list,
     worker_name: str,
-    worker_ports: Dict[str, int],
+    worker_port: int,
     use_unix_socket: bool = False,
 ) -> None:
     """Given a dictionary representing a config file shared across all workers,
@@ -877,8 +840,7 @@ def add_worker_roles_to_shared_config(
         worker_type_list: The type of worker (one of those defined in WORKERS_CONFIG).
             This list can be a single worker type or multiple.
         worker_name: The name of the worker instance.
-        worker_ports: The dict of ports to find the HTTP replication port that the
-            worker instance is listening on.
+        worker_port: The replication port that the worker instance is listening on.
         use_unix_socket: If a socket path should be used instead of a host/port combo
     """
     # The instance_map config field marks the workers that write to various replication
@@ -922,18 +884,24 @@ def add_worker_roles_to_shared_config(
                 worker, []
             ).append(worker_name)
 
-        if "replication" in worker_ports.keys():
+        if "replication" in WORKERS_CONFIG.get(worker, {}).get(
+            "listener_resources", []
+        ):
             # Map of worker instance names to path or host/ports combos. If a worker
             # type in WORKERS_CONFIG needs to be added here in the future, just add a
             # 'replication' entry to the list in listener_resources for that worker.
+            # NOTE: in theory, the worker_port could be a 0 but that should not be the case
+            # as if a 'replication' listener is defined then this will be populated by the
+            # counter system
+            assert worker_port > 0
             if use_unix_socket:
                 instance_map[worker_name] = {
-                    "path": f"/run/worker.{worker_ports['replication']}",
+                    "path": f"/run/worker.{worker_port}",
                 }
             else:
                 instance_map[worker_name] = {
                     "host": "localhost",
-                    "port": worker_ports["replication"],
+                    "port": worker_port,
                 }
 
 
@@ -1482,19 +1450,23 @@ def generate_worker_files(
 
         # If metrics is enabled, add a listener_resource for that
         if enable_metrics:
-            worker.listener_resources.add("metrics")
+            worker.metrics_port = workers.get_next_port_number()
 
         # Same for manholes
         if enable_manhole_workers:
-            worker.listener_resources.add("manhole")
+            worker.manhole_port = workers.get_next_port_number()
 
         # All workers get a health listener
-        worker.listener_resources.add("health")
+        worker.health_port = workers.get_next_port_number()
 
-        # Add in ports for each listener entry(e.g. 'client', 'federation', 'media',
-        # 'replication')
-        for listener_entry in worker.listener_resources:
-            workers.set_listener_port_by_resource(new_worker_name, listener_entry)
+        if "replication" in worker.listener_resources:
+            worker.replication_port = workers.get_next_port_number()
+            # Make sure to remove this one, don't need a double dip on port numbers
+            worker.listener_resources.discard("replication")
+
+        # Add in one port for all listener entries(e.g. 'client', 'federation', 'media')
+        if worker.listener_resources:
+            worker.main_port = workers.get_next_port_number()
 
         # Every worker gets a separate port or socket path to handle it's 'health'
         # resource. Append it to the list so docker can check it.
@@ -1503,14 +1475,12 @@ def generate_worker_files(
             # individualize the name of the file. We should never have to reference
             # these sockets directly, as that is what Nginx is doing for us.
             healthcheck_urls.append(
-                f"--unix-socket /run/worker.{worker.listener_port_map['health']} "
+                f"--unix-socket /run/worker.{worker.health_port} "
                 # Of the below URL, only the path is actually used, the rest is ignored.
                 "http://localhost/health"
             )
         else:
-            healthcheck_urls.append(
-                f"http://localhost:{worker.listener_port_map['health']}/health"
-            )
+            healthcheck_urls.append(f"http://localhost:{worker.health_port}/health")
 
         # Prepare the bits that will be used in the worker.yaml file
         worker_config = worker.extract_jinja_worker_template()
@@ -1523,12 +1493,12 @@ def generate_worker_files(
         )
 
         # Update the shared config with sharding-related options if any are found in the
-        # global shared_config.
+        # global shared_config. Recall that the port passed in should be for replication
         add_worker_roles_to_shared_config(
             shared_config,
             worker.types_list,
             new_worker_name,
-            worker.listener_port_map,
+            worker.replication_port,
             use_unix_socket=enable_replication_unix_sockets,
         )
 
@@ -1540,68 +1510,69 @@ def generate_worker_files(
         log_config_filepath = generate_worker_log_config(environ, worker.name, data_dir)
 
         # Build the worker_listener block for the worker.yaml
+        # TODO: worker_listeners should be a List, not a JsonDict. Fix
         worker_listeners: Dict[str, Any] = {}
-        for listener in worker.listener_resources:
-            this_listener: Dict[str, Any] = {}
-            if listener in HTTP_BASED_LISTENER_RESOURCES:
-                if listener in ["replication"]:
-                    this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener],
-                        [listener],
-                        enable_replication_unix_sockets,
-                        False,
-                    )
-                elif listener in [
-                    "client",
-                    "federation",
-                    "media",
-                ]:
-                    this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener],
-                        [listener],
-                        enable_public_unix_sockets,
-                        True,
-                    )
-                elif listener in ["health"]:
-                    this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener],
-                        [listener],
-                        (enable_public_unix_sockets or enable_replication_unix_sockets),
-                        False,
-                    )
-                else:
-                    # This should be dead code now
-                    this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener], [listener], False, True
-                    )
-            elif listener in ["metrics"]:
-                # Metrics listeners are a strange sort, supporting both 'http' and a
-                # custom 'metrics' type. The 'http' type allows for compression and unix
-                # sockets, but at the expense of utiltizing the reactor to generate
-                # results(causing a delay in response).
-                # However, using the custom 'metrics' type allows a side-loaded
-                # webserver to handle the load of generating results, allowing for a
-                # much snappier response time. Unless we are trying to use Unix sockets,
-                # just use the custom type.
-                # Note: at this time, Prometheus does not support Unix sockets.
-                if enable_metrics_unix_socket:
-                    this_listener = construct_worker_listener_block(
-                        worker.listener_port_map[listener],
-                        [listener],
-                        enable_metrics_unix_socket,
-                        True,
-                    )
-                else:
-                    this_listener = {
-                        "type": listener,
-                        "port": worker.listener_port_map[listener],
-                    }
-            # The 'manhole' listener doesn't use 'http' as its type.
-            elif listener in ["manhole"]:
+        if worker.listener_resources:
+            this_listener = construct_worker_listener_block(
+                worker.main_port,
+                list(worker.listener_resources),
+                enable_public_unix_sockets,
+                True,
+            )
+
+            worker_listeners.setdefault("worker_listeners", []).append(this_listener)
+
+        if worker.replication_port > 0:
+            this_listener = construct_worker_listener_block(
+                worker.replication_port,
+                ["replication"],
+                enable_replication_unix_sockets,
+                False,
+            )
+            worker_listeners.setdefault("worker_listeners", []).append(this_listener)
+
+        # Then do the health and metrics(if applicable)
+        if worker.health_port > 0:
+            this_listener = construct_worker_listener_block(
+                worker.health_port,
+                ["health"],
+                (enable_public_unix_sockets or enable_replication_unix_sockets),
+                False,
+            )
+            worker_listeners.setdefault("worker_listeners", []).append(this_listener)
+
+        # The 'manhole' listener doesn't use 'http' as its type.
+        if worker.manhole_port > 0:
+            this_listener = {
+                "type": "manhole",
+                "port": worker.manhole_port,
+            }
+            worker_listeners.setdefault("worker_listeners", []).append(this_listener)
+
+        if worker.metrics_port > 0:
+            # Metrics listeners are a strange sort, supporting both 'http' and a
+            # custom 'metrics' type. The 'http' type allows for compression and unix
+            # sockets, but at the expense of utilising the reactor to generate
+            # results(causing a delay in response).
+            # However, using the custom 'metrics' type allows a side-loaded
+            # webserver to handle the load of generating results, allowing for a
+            # much snappier response time. Unless we are trying to use Unix sockets,
+            # just use the custom type.
+            # Note: at this time, Prometheus does not support Unix sockets.
+            if enable_metrics_unix_socket:
+                this_listener = construct_worker_listener_block(
+                    worker.metrics_port,
+                    ["metrics"],
+                    enable_metrics_unix_socket,
+                    True,
+                )
+
+            else:
                 this_listener = {
-                    "type": listener,
-                    "port": worker.listener_port_map[listener],
+                    "type": "metrics",
+                    "port": worker.metrics_port,
                 }
+
             worker_listeners.setdefault("worker_listeners", []).append(this_listener)
 
         # That's everything needed to construct the worker config file.
@@ -1894,7 +1865,7 @@ def generate_worker_files(
     if enable_prometheus:
         prom_endpoint_config = ""
         for _, worker in workers.worker.items():
-            worker_portpath_target_number = worker.listener_port_map["metrics"]
+            worker_portpath_target_number = worker.metrics_port
             metrics_target = (
                 f"/run/worker.{worker_portpath_target_number}"
                 if enable_metrics_unix_socket
