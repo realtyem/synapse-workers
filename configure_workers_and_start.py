@@ -156,6 +156,15 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
         "shared_extra_conf": {},
         "worker_extra_conf": "",
     },
+    "sliding_synchrotron": {
+        "app": "synapse.app.generic_worker",
+        "listener_resources": ["client"],
+        "endpoint_patterns": [
+            "^/_matrix/client/(v4|v5|unstable/.*)/sync$",
+        ],
+        "shared_extra_conf": {},
+        "worker_extra_conf": "",
+    },
     "client_reader": {
         "app": "synapse.app.generic_worker",
         "listener_resources": ["client"],
