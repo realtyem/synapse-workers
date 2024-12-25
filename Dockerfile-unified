@@ -60,14 +60,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # FROM eqalpha/keydb:latest AS redis_base
 
 # Do the same for the Nginx docker image.
-FROM nginx:1.24.0 as nginx_base
+FROM nginx:1.24.0 AS nginx_base
 
 # The synapse auto compressor is from an image we build. It won't change much
 # so there's no reason to not have this pre-compiled and just borrow it. This also
 # contains the custom compiled version of coturn that includes metrics support for
 # prometheus, and the postgres and redis metrics exporter tools for prometheus
 
-FROM realtyem/synapse-tools:latest as tools
+FROM realtyem/synapse-tools:latest AS tools
 
 
 ###
