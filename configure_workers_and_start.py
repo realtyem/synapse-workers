@@ -454,10 +454,8 @@ class Worker:
         self.base_name = name
 
         # Split the worker types from string into list. This will have already been
-        # stripped of the potential name and multiplier. Check for duplicates in the
-        # split worker type list. No advantage in having duplicated worker types on
-        # the same worker. Two would consolidate into one. (e.g. "pusher + pusher"
-        # would resolve to a single "pusher" which may not be what was intended.)
+        # stripped of the potential name and multiplier. Allow for duplicate subtypes in the
+        # list so that two shorthand workers can have merged functionality
         self.types_list = split_and_strip_string(worker_type_str, "+")
 
         # Check that the worker type requested isn't one of the special shorthand
@@ -479,9 +477,6 @@ class Worker:
                     if new_roles:
                         self.types_list.remove(role)
                         self.types_list.extend(new_roles)
-
-        if len(self.types_list) != len(set(self.types_list)):
-            error(f"Duplicate worker type found in '{worker_type_str}'! Please fix.")
 
         for role in self.types_list:
             worker_config = WORKERS_CONFIG.get(role)
