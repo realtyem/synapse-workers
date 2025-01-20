@@ -192,7 +192,8 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
             "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/event",
             "^/_matrix/client/(api/v1|r0|v3|unstable/.*)/rooms/.*/aliases",
             "^/_matrix/client/v1/rooms/.*/timestamp_to_event$",
-            "^/_matrix/client/(api/v1|r0|v3|unstable)/directory/list/room.*$",
+            # This one does not work on workers yet, I believe this is because of faster joins
+            # "^/_matrix/client/(api/v1|r0|v3|unstable)/directory/list/room.*$",
             "^/_matrix/client/(api/v1|r0|v3|unstable)/directory/room.*$",
         ],
         "shared_extra_conf": {},
