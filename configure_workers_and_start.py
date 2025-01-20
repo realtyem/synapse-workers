@@ -735,8 +735,12 @@ def add_hash_to_body_if_need_load_balance(
 
     # Some endpoints cache better when the request uri with a room name is
     # consistently mapped to the same worker. A `map` has been placed inside
-    # synapse-nginx.conf.j2 that this will reference.
-    elif any(x in ROLES_LB_ROOM_NAME for x in roles_list):
+    # synapse-nginx.conf.j2 that this will reference. If all of the worker
+    # roles are not in the same LB block, then just round-robin the lot.
+    # Otherwise any path that does not match for a room name will just
+    # end up on the first upstream in the block, effectively pinning one
+    # worker unfairly
+    elif all(x in ROLES_LB_ROOM_NAME for x in roles_list):
         counter_for_hash_map += 1
         return "    hash $room_name consistent;\n"
 
