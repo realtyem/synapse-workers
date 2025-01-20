@@ -452,17 +452,33 @@ class Worker:
         # Assign the name provided
         self.base_name = name
 
-        # Check that the worker type requested isn't one of the special shorthand
-        # types, such as 'client_reader'.
-        if worker_type_str in shorthand_worker_combos:
-            worker_type_str = shorthand_worker_combos[worker_type_str]
-
         # Split the worker types from string into list. This will have already been
         # stripped of the potential name and multiplier. Check for duplicates in the
         # split worker type list. No advantage in having duplicated worker types on
         # the same worker. Two would consolidate into one. (e.g. "pusher + pusher"
         # would resolve to a single "pusher" which may not be what was intended.)
         self.types_list = split_and_strip_string(worker_type_str, "+")
+
+        # Check that the worker type requested isn't one of the special shorthand
+        # types, such as 'client_reader'. This should be a recursive check, to handle
+        # combined worker types containing one of the shorthand
+        while True:
+            if not any([roles for roles in self.types_list if "+" in roles or roles in shorthand_worker_combos]):
+                break
+            else:
+                for role in self.types_list:
+                    new_roles = None
+                    if role in shorthand_worker_combos:
+                        new_role = shorthand_worker_combos[role]
+                        new_roles = split_and_strip_string(new_role, "+")
+
+                    if "+" in role:
+                        new_roles = split_and_strip_string(role, "+")
+
+                    if new_roles:
+                        self.types_list.remove(role)
+                        self.types_list.extend(new_roles)
+
         if len(self.types_list) != len(set(self.types_list)):
             error(f"Duplicate worker type found in '{worker_type_str}'! Please fix.")
 
