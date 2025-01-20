@@ -24,7 +24,10 @@
 #         the end to multiply that worker. Append multiple worker types with '+' to
 #         merge the worker types into a single worker. Add a name and a '=' to the
 #         front of a worker type to give this instance a name in logs and nginx.
-#         Examples:
+#         Observe `shorthand_worker_combos` below to see historically opinionated
+#         worker types and how they are now broken into subtypes. Worker types that
+#         work best by being routed to their respective endpoints are a best effort
+#         affair. Examples:
 #         SYNAPSE_WORKER_TYPES='event_persister, federation_sender, client_reader'
 #         SYNAPSE_WORKER_TYPES='event_persister:2, federation_sender:2, client_reader'
 #         SYNAPSE_WORKER_TYPES='stream_writers=account_data+presence+typing'
@@ -92,6 +95,7 @@ prometheus_storage_retention_time = "1y"
 # Watching /_matrix/media and related needs a "media" listener
 # Stream Writers require "client" and "replication" listeners because they
 #   have to attach by instance_map to the master process and have client endpoints.
+# Observe below `shorthand_worker_combos` for relevant combinations of worker roles
 WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
     "pusher": {
         "app": "synapse.app.generic_worker",
