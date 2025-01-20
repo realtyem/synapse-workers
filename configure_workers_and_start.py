@@ -198,29 +198,49 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
         "shared_extra_conf": {},
         "worker_extra_conf": "",
     },
-    "federation_reader": {
+    "federation_reader_non_room": {
         "app": "synapse.app.generic_worker",
         "listener_resources": ["federation"],
         "endpoint_patterns": [
             "^/_matrix/federation/(v1|v2)/event/",
+            "^/_matrix/federation/(v1|v2)/publicRooms",
+            "^/_matrix/federation/(v1|v2)/query/",
+            "^/_matrix/federation/(v1|v2)/query_auth/",
+            "^/_matrix/federation/(v1|v2)/user/devices/",
+            # I found no reference to this in the docs, I think it was removed
+            # "^/_matrix/federation/(v1|v2)/get_groups_publicised$",
+            # These two should probably be moved to the frontend_proxy
+            # "^/_matrix/key/v2/server",
+            "^/_matrix/key/v2/query",
+            "^/_matrix/federation/v1/hierarchy/.*$",
+            # These are disabled because they need to be verified to work on
+            # the worker model in Synapse.
+            # "^/_matrix/federation/v1/user/keys/claim$",
+            # "^/_matrix/federation/v1/user/keys/query$",
+
+        ],
+        "shared_extra_conf": {},
+        "worker_extra_conf": "",
+    },
+    "federation_reader_room": {
+        "app": "synapse.app.generic_worker",
+        "listener_resources": ["federation"],
+        "endpoint_patterns": [
             "^/_matrix/federation/(v1|v2)/state/",
             "^/_matrix/federation/(v1|v2)/state_ids/",
             "^/_matrix/federation/(v1|v2)/backfill/",
             "^/_matrix/federation/(v1|v2)/get_missing_events/",
-            "^/_matrix/federation/(v1|v2)/publicRooms",
-            "^/_matrix/federation/(v1|v2)/query/",
             "^/_matrix/federation/(v1|v2)/make_join/",
+            "^/_matrix/federation/(v1|v2)/make_knock/",
             "^/_matrix/federation/(v1|v2)/make_leave/",
             "^/_matrix/federation/(v1|v2)/send_join/",
+            "^/_matrix/federation/(v1|v2)/send_knock/",
             "^/_matrix/federation/(v1|v2)/send_leave/",
             "^/_matrix/federation/(v1|v2)/invite/",
             "^/_matrix/federation/(v1|v2)/query_auth/",
             "^/_matrix/federation/(v1|v2)/event_auth/",
             "^/_matrix/federation/v1/timestamp_to_event/",
             "^/_matrix/federation/(v1|v2)/exchange_third_party_invite/",
-            "^/_matrix/federation/(v1|v2)/user/devices/",
-            "^/_matrix/federation/(v1|v2)/get_groups_publicised$",
-            "^/_matrix/key/v2/query",
         ],
         "shared_extra_conf": {},
         "worker_extra_conf": "",
