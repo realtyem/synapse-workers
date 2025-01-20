@@ -10,10 +10,12 @@ log_format mtail '$host $remote_addr - $remote_user [$time_local] $request_lengt
                  '"$request" $status $body_bytes_sent URT:$upstream_response_time $request_time '
                  '$upstream_connect_time $upstream_header_time "$http_referer" "$http_user_agent" "$content_type"';
 
-# This will only be used by the client_reader worker, if one is not requested and the
-# main process handles this end point then it will not be used
+
+# Courtesy of tcpipuk@github.com
+# Extract room name from URI
 map $request_uri $room_name {
-    ~^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/([^/]+)/messages.*$ $2;
+    default "not_room";
+    "~^/_matrix/(client|federation)/.*?(?:%21|!)(?<room>[\s\S]+)(?::|%3A)(?<domain>[A-Za-z0-9.\-]+)" "!$room:$domain";
 }
 
 # The synchrotron worker can load balance requests based on the user id portion of the
