@@ -36,10 +36,6 @@ jobs:
           - arrangement: workers
             database: Postgres
 
-          - arrangement: workers
-            database: Postgres
-            worker_types: 'event_persister:2, stream_writers=account_data+presence+receipts+to_device+typing, singles=background_worker+user_dir+frontend_proxy+media_repository+appservice, senders=pusher+federation_sender, readers=federation_reader+client_reader+synchrotron+federation_inbound+event_creator:2'
-
           - arrangement: monolith
             database: SQLite
             unix_sockets: True
@@ -50,11 +46,6 @@ jobs:
 
           - arrangement: workers
             database: Postgres
-            unix_sockets: True
-
-          - arrangement: workers
-            database: Postgres
-            worker_types: 'event_persister:2, stream_writers=account_data+presence+receipts+to_device+typing, singles=background_worker+user_dir+frontend_proxy+media_repository+appservice, senders=pusher+federation_sender, readers=federation_reader+client_reader+synchrotron+federation_inbound+event_creator:2'
             unix_sockets: True
 
           - arrangement: monolith
@@ -68,11 +59,6 @@ jobs:
           - arrangement: workers
             database: Postgres
             reactor: asyncio
-
-          - arrangement: workers
-            database: Postgres
-            reactor: asyncio
-            worker_types: 'event_persister:2, stream_writers=account_data+presence+receipts+to_device+typing, singles=background_worker+user_dir+frontend_proxy+media_repository+appservice, senders=pusher+federation_sender, readers=federation_reader+client_reader+synchrotron+federation_inbound+event_creator:2'
 
           - arrangement: monolith
             database: SQLite
@@ -92,7 +78,7 @@ jobs:
           - arrangement: workers
             database: Postgres
             reactor: asyncio
-            worker_types: 'event_persister:2, stream_writers=account_data+presence+receipts+to_device+typing, singles=background_worker+user_dir+frontend_proxy+media_repository+appservice, senders=pusher+federation_sender, readers=federation_reader+client_reader+synchrotron+federation_inbound+event_creator:2'
+            worker_types: 'general_reader, room_worker, event_persister, stream_writers=account_data+presence+receipts+to_device+typing, singles=background_worker+user_dir+frontend_proxy+media_repository+appservice, senders=pusher+federation_sender, readers=synchrotron+federation_inbound+event_creator'
             unix_sockets: True
 
 
