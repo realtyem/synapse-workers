@@ -1718,6 +1718,8 @@ def generate_worker_files(
         "keepalive_connection_multiplier": int(
             os.environ.get("NGINX_UPSTREAM_KEEPALIVE_CONNECTION_MULTIPLIER", 1)
         ),
+        "server_max_fails": int(os.environ.get("NGINX_UPSTREAM_SERVER_MAX_FAILS", 1)),
+        "server_fail_timeout": int(os.environ.get("NGINX_UPSTREAM_SERVER_FAIL_TIMEOUT", 10))
     }
 
     # There are now two dicts to pull data from to construct the nginx config files.
@@ -1743,6 +1745,9 @@ def generate_worker_files(
     # Keep a tally of what workers will care about having a larger hash table for nginx.
     # The main process counts as 1, so start the tally there.
     count_of_hash_requiring_workers = 1
+
+    upstream_server_fail_configs = f" max_fails={nginx_upstreams_config_dict['server_max_fails']}"
+    upstream_server_fail_configs += f" fail_timeout={nginx_upstreams_config_dict['server_fail_timeout']}"
     for upstream_name, upstream_worker_ports in nginx.upstreams_to_ports.items():
         roles_list = nginx.upstreams_roles[upstream_name]
 
@@ -1751,12 +1756,14 @@ def generate_worker_files(
         body = add_hash_to_body_if_need_load_balance(roles_list, count_of_hash_requiring_workers)
 
         # Add specific "hosts" by port number to the upstream block. In the case of Unix
-        # sockets, borrow the port number to individualize the socket files.
+        # sockets, borrow the port number to individualize the socket files. Using `max_fails=0` so
+        # if an upstream doesn't response within it's timeout it doesn't get marked as "dead" and
+        # routed around by accident
         for port in upstream_worker_ports:
             if enable_public_unix_sockets:
-                body += f"    server unix:/run/worker.{port};\n"
+                body += f"    server unix:/run/worker.{port}{upstream_server_fail_configs};\n"
             else:
-                body += f"    server localhost:{port};\n"
+                body += f"    server localhost:{port}{upstream_server_fail_configs};\n"
 
         if nginx_upstreams_config_dict["keepalive_global_enable"]:
             # Need this to determine keepalive argument, need multiple of 2. Double the

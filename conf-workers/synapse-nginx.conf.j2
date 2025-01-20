@@ -34,9 +34,9 @@ upstream main_synapse_process {
     # https://nginx.org/en/docs/http/ngx_http_upstream_module.html#keepalive
     zone upstreams 512K;
 {% if enable_proxy_to_unix_socket %}
-    server unix:/run/main_public.sock;
+    server unix:/run/main_public.sock max_fails={{ config.server_max_fails}} fail_timeout={{ config.server_fail_timeout}};
 {% else %}
-    server localhost:{{ main_proxy_pass_cli_port }};
+    server localhost:{{ main_proxy_pass_cli_port }} max_fails={{ config.server_max_fails}} fail_timeout={{ config.server_fail_timeout}};
 {% endif %}
 {% if config.keepalive_global_enable %}
     keepalive 2;
