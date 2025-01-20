@@ -363,6 +363,15 @@ PROMETHEUS_SCRAPE_CONFIG_BLOCK = """
         index: {index}
 """
 
+ROLES_LB_HEADER_LIST = ["synchrotron"]
+ROLES_LB_IP_LIST = ["federation_inbound"]
+ROLES_LB_ROOM_NAME: List[str] = ["client_reader_room", "federation_reader_room"]
+
+shorthand_worker_combos = {
+    "client_reader": "client_reader_room+client_reader_non_room",
+    "federation_reader": "federation_reader_room+federation_reader_non_room"
+}
+
 
 class Worker:
     """
@@ -441,6 +450,11 @@ class Worker:
 
         # Assign the name provided
         self.base_name = name
+
+        # Check that the worker type requested isn't one of the special shorthand
+        # types, such as 'client_reader'.
+        if worker_type_str in shorthand_worker_combos:
+            worker_type_str = shorthand_worker_combos[worker_type_str]
 
         # Split the worker types from string into list. This will have already been
         # stripped of the potential name and multiplier. Check for duplicates in the
@@ -1466,7 +1480,9 @@ def generate_worker_files(
         # worker_type is a string that can be:
         # 1. a single worker type
         # 2. a combination of worker types, concatenated with a '+'
-        # 3. possibly prepended with a name and a '='
+        # 3. a superset of worker types as a convenience. For instance, a client_reader worker
+        #    would actually be a 'client_reader_non_room+client_reader_room'
+        # 4. possibly prepended with a name and a '='
         # Make the worker from that string.
         new_worker_name = workers.add_worker(worker_type)
 
@@ -1650,12 +1666,6 @@ def generate_worker_files(
     # Determine the load-balancing upstreams to configure
     nginx_upstream_config = ""
 
-    # lb stands for load-balancing. These can be added to if other worker roles are
-    # appropriate. Based on the Docs, this is it.
-    roles_lb_header_list = ["synchrotron"]
-    roles_lb_ip_list = ["federation_inbound"]
-    roles_lb_room_name: List[str] = ["client_reader"]
-
     # Keep a tally of what workers will care about having a larger hash table for nginx.
     # The main process counts as 1, so start the tally there.
     count_of_hash_requiring_workers = 1
@@ -1689,7 +1699,7 @@ def generate_worker_files(
         # Some endpoints should be load-balanced by client IP. This way,
         # if it comes from the same IP, it goes to the same worker and should be
         # a smarter way to cache data. This works well for federation.
-        if any(x in roles_lb_ip_list for x in roles_list):
+        if any(x in ROLES_LB_IP_LIST for x in roles_list):
             body += "    hash $proxy_add_x_forwarded_for;\n"
             count_of_hash_requiring_workers += 1
 
@@ -1697,14 +1707,14 @@ def generate_worker_files(
         # means that even with a different IP, a user should get the same data
         # from the same upstream source, like a synchrotron worker, with smarter
         # caching of data.
-        elif any(x in roles_lb_header_list for x in roles_list):
+        elif any(x in ROLES_LB_HEADER_LIST for x in roles_list):
             body += "    hash $user_id consistent;\n"
             count_of_hash_requiring_workers += 1
 
         # Some endpoints cache better when the request uri with a room name is
         # consistently mapped to the same worker. A `map` has been placed inside
         # synapse-nginx.conf.j2 that this will reference.
-        elif any(x in roles_lb_room_name for x in roles_list):
+        elif any(x in ROLES_LB_ROOM_NAME for x in roles_list):
             body += "    hash $room_name consistent;\n"
             count_of_hash_requiring_workers += 1
 
