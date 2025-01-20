@@ -370,7 +370,8 @@ ROLES_LB_ROOM_NAME: List[str] = ["client_reader_room", "federation_reader_room"]
 
 shorthand_worker_combos = {
     "client_reader": "client_reader_room+client_reader_non_room",
-    "federation_reader": "federation_reader_room+federation_reader_non_room"
+    "federation_reader": "federation_reader_room+federation_reader_non_room",
+    "room_reader": "federation_reader_room+client_reader_room",
 }
 
 
