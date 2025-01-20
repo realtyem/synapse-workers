@@ -692,6 +692,58 @@ class Workers:
         return self.current_port_counter
 
 
+def add_hash_to_body_if_need_load_balance(
+    roles_list: Set[str], counter_for_hash_map: int
+) -> str:
+    # This presents a dilemma. Some endpoints are better load-balanced by
+    # Authorization header, and some by remote IP. What do you do if a combo
+    # worker was requested that has endpoints for both? As it is likely but
+    # not impossible that a user will be on the same IP if they have multiple
+    # devices(like at home on Wi-Fi), I believe that balancing by IP would be
+    # the broader reaching choice. This is probably only slightly better than
+    # round-robin. As such, leave balancing by remote IP as the first of the
+    # conditionals below, so if both would apply the first is used.
+
+    # Three additional notes:
+    #   1. Federation endpoints shouldn't (necessarily) have Authorization
+    #       headers, so using them on these endpoints would be a moot point.
+    #   2. For Complement, this situation is reversed as there is only ever a
+    #       single IP used during tests, 127.0.0.1.
+    #   3. IIRC, it may be possible to hash by both at once, or at least have
+    #       both hashes on the same line. If I understand that correctly, the
+    #       one that doesn't exist is effectively ignored. However, that
+    #       requires increasing the hashmap size in the nginx master config
+    #       file, which would take more jinja templating(or at least a 'sed'),
+    #       and may not be accepted upstream. Based on previous experiments,
+    #       increasing this value was required for hashing by room id, so may
+    #       end up being a path forward anyway.
+
+    # Some endpoints should be load-balanced by client IP. This way,
+    # if it comes from the same IP, it goes to the same worker and should be
+    # a smarter way to cache data. This works well for federation.
+    if any(x in ROLES_LB_IP_LIST for x in roles_list):
+        counter_for_hash_map += 1
+        return "    hash $proxy_add_x_forwarded_for;\n"
+
+    # Some endpoints should be load-balanced by Authorization header. This
+    # means that even with a different IP, a user should get the same data
+    # from the same upstream source, like a synchrotron worker, with smarter
+    # caching of data.
+    elif any(x in ROLES_LB_HEADER_LIST for x in roles_list):
+        counter_for_hash_map += 1
+        return "    hash $user_id consistent;\n"
+
+    # Some endpoints cache better when the request uri with a room name is
+    # consistently mapped to the same worker. A `map` has been placed inside
+    # synapse-nginx.conf.j2 that this will reference.
+    elif any(x in ROLES_LB_ROOM_NAME for x in roles_list):
+        counter_for_hash_map += 1
+        return "    hash $room_name consistent;\n"
+
+    else:
+        return ""
+
+
 class NginxConfig:
     """
     This represents collected data to plug into the various nginx configuration points.
@@ -1687,53 +1739,11 @@ def generate_worker_files(
     # The main process counts as 1, so start the tally there.
     count_of_hash_requiring_workers = 1
     for upstream_name, upstream_worker_ports in nginx.upstreams_to_ports.items():
-        body = ""
         roles_list = nginx.upstreams_roles[upstream_name]
 
-        # This presents a dilemma. Some endpoints are better load-balanced by
-        # Authorization header, and some by remote IP. What do you do if a combo
-        # worker was requested that has endpoints for both? As it is likely but
-        # not impossible that a user will be on the same IP if they have multiple
-        # devices(like at home on Wi-Fi), I believe that balancing by IP would be
-        # the broader reaching choice. This is probably only slightly better than
-        # round-robin. As such, leave balancing by remote IP as the first of the
-        # conditionals below, so if both would apply the first is used.
-
-        # Three additional notes:
-        #   1. Federation endpoints shouldn't (necessarily) have Authorization
-        #       headers, so using them on these endpoints would be a moot point.
-        #   2. For Complement, this situation is reversed as there is only ever a
-        #       single IP used during tests, 127.0.0.1.
-        #   3. IIRC, it may be possible to hash by both at once, or at least have
-        #       both hashes on the same line. If I understand that correctly, the
-        #       one that doesn't exist is effectively ignored. However, that
-        #       requires increasing the hashmap size in the nginx master config
-        #       file, which would take more jinja templating(or at least a 'sed'),
-        #       and may not be accepted upstream. Based on previous experiments,
-        #       increasing this value was required for hashing by room id, so may
-        #       end up being a path forward anyway.
-
-        # Some endpoints should be load-balanced by client IP. This way,
-        # if it comes from the same IP, it goes to the same worker and should be
-        # a smarter way to cache data. This works well for federation.
-        if any(x in ROLES_LB_IP_LIST for x in roles_list):
-            body += "    hash $proxy_add_x_forwarded_for;\n"
-            count_of_hash_requiring_workers += 1
-
-        # Some endpoints should be load-balanced by Authorization header. This
-        # means that even with a different IP, a user should get the same data
-        # from the same upstream source, like a synchrotron worker, with smarter
-        # caching of data.
-        elif any(x in ROLES_LB_HEADER_LIST for x in roles_list):
-            body += "    hash $user_id consistent;\n"
-            count_of_hash_requiring_workers += 1
-
-        # Some endpoints cache better when the request uri with a room name is
-        # consistently mapped to the same worker. A `map` has been placed inside
-        # synapse-nginx.conf.j2 that this will reference.
-        elif any(x in ROLES_LB_ROOM_NAME for x in roles_list):
-            body += "    hash $room_name consistent;\n"
-            count_of_hash_requiring_workers += 1
+        # This will add an appropriate "hash" and type of hash(or nothing if round-robin is being used)
+        # and also increment the counter for multiplying the nginx hash map max size
+        body = add_hash_to_body_if_need_load_balance(roles_list, count_of_hash_requiring_workers)
 
         # Add specific "hosts" by port number to the upstream block. In the case of Unix
         # sockets, borrow the port number to individualize the socket files.
