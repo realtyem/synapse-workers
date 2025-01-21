@@ -50,10 +50,10 @@ server {
     # Listen on an unoccupied port number, traditionally 8008. This is pulled in from
     # your existing(or just created) homeserver.yaml file. This should allow you to not
     # have to change any ports set up in your docker image
-    listen {{ original_client_listener_port or '8008' }} so_keepalive=300:65:5;
-    listen [::]:{{ original_client_listener_port or '8008' }}  so_keepalive=300:65:5;
+    listen {{ original_client_listener_port or '8008' }} so_keepalive=on;
+    listen [::]:{{ original_client_listener_port or '8008' }}  so_keepalive=on;
 {%- if main_entry_point_unix_socket is not none %}
-    listen unix:{{ main_entry_point_unix_socket }}  so_keepalive=300:65:5;
+    listen unix:{{ main_entry_point_unix_socket }}  so_keepalive=on;
 {% endif -%}
 {% if tls_cert_path is not none and tls_key_path is not none %}
     # this allows for:
