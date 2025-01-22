@@ -10,10 +10,12 @@ log_format mtail '$host $remote_addr - $remote_user [$time_local] $request_lengt
                  '"$request" $status $body_bytes_sent URT:$upstream_response_time $request_time '
                  '$upstream_connect_time $upstream_header_time "$http_referer" "$http_user_agent" "$content_type"';
 
-# This will only be used by the client_reader worker, if one is not requested and the
-# main process handles this end point then it will not be used
+
+# Courtesy of tcpipuk@github.com
+# Extract room name from URI
 map $request_uri $room_name {
-    ~^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/([^/]+)/messages.*$ $2;
+    default "not_room";
+    "~^/_matrix/(client|federation)/.*?(?:%21|!)(?<room>[\s\S]+)(?::|%3A)(?<domain>[A-Za-z0-9.\-]+)" "!$room:$domain";
 }
 
 # The synchrotron worker can load balance requests based on the user id portion of the
@@ -32,9 +34,9 @@ upstream main_synapse_process {
     # https://nginx.org/en/docs/http/ngx_http_upstream_module.html#keepalive
     zone upstreams 512K;
 {% if enable_proxy_to_unix_socket %}
-    server unix:/run/main_public.sock;
+    server unix:/run/main_public.sock max_fails={{ config.server_max_fails}} fail_timeout={{ config.server_fail_timeout}};
 {% else %}
-    server localhost:{{ main_proxy_pass_cli_port }};
+    server localhost:{{ main_proxy_pass_cli_port }} max_fails={{ config.server_max_fails}} fail_timeout={{ config.server_fail_timeout}};
 {% endif %}
 {% if config.keepalive_global_enable %}
     keepalive 2;
@@ -48,10 +50,10 @@ server {
     # Listen on an unoccupied port number, traditionally 8008. This is pulled in from
     # your existing(or just created) homeserver.yaml file. This should allow you to not
     # have to change any ports set up in your docker image
-    listen {{ original_client_listener_port or '8008' }} so_keepalive=300:65:5;
-    listen [::]:{{ original_client_listener_port or '8008' }}  so_keepalive=300:65:5;
+    listen {{ original_client_listener_port or '8008' }} so_keepalive=on;
+    listen [::]:{{ original_client_listener_port or '8008' }}  so_keepalive=on;
 {%- if main_entry_point_unix_socket is not none %}
-    listen unix:{{ main_entry_point_unix_socket }}  so_keepalive=300:65:5;
+    listen unix:{{ main_entry_point_unix_socket }}  so_keepalive=on;
 {% endif -%}
 {% if tls_cert_path is not none and tls_key_path is not none %}
     # this allows for:

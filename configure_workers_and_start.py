@@ -24,7 +24,10 @@
 #         the end to multiply that worker. Append multiple worker types with '+' to
 #         merge the worker types into a single worker. Add a name and a '=' to the
 #         front of a worker type to give this instance a name in logs and nginx.
-#         Examples:
+#         Observe `shorthand_worker_combos` below to see historically opinionated
+#         worker types and how they are now broken into subtypes. Worker types that
+#         work best by being routed to their respective endpoints are a best effort
+#         affair. Examples:
 #         SYNAPSE_WORKER_TYPES='event_persister, federation_sender, client_reader'
 #         SYNAPSE_WORKER_TYPES='event_persister:2, federation_sender:2, client_reader'
 #         SYNAPSE_WORKER_TYPES='stream_writers=account_data+presence+typing'
@@ -92,6 +95,7 @@ prometheus_storage_retention_time = "1y"
 # Watching /_matrix/media and related needs a "media" listener
 # Stream Writers require "client" and "replication" listeners because they
 #   have to attach by instance_map to the master process and have client endpoints.
+# Observe below `shorthand_worker_combos` for relevant combinations of worker roles
 WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
     "pusher": {
         "app": "synapse.app.generic_worker",
@@ -156,18 +160,11 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
         "shared_extra_conf": {},
         "worker_extra_conf": "",
     },
-    "client_reader": {
+    "client_reader_non_room": {
         "app": "synapse.app.generic_worker",
         "listener_resources": ["client"],
         "endpoint_patterns": [
             "^/_matrix/client/(api/v1|r0|v3|unstable)/publicRooms$",
-            "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/joined_members$",
-            "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/context/.*$",
-            "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/members$",
-            "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/state$",
-            "^/_matrix/client/v1/rooms/.*/hierarchy$",
-            "^/_matrix/client/(v1|unstable)/rooms/.*/relations/",
-            "^/_matrix/client/v1/rooms/.*/threads$",
             "^/_matrix/client/(api/v1|r0|v3|unstable)/login$",
             "^/_matrix/client/(r0|v3|unstable)/account/3pid$",
             "^/_matrix/client/(r0|v3|unstable)/account/whoami$",
@@ -176,43 +173,79 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
             "^/_matrix/client/(api/v1|r0|v3|unstable)/register$",
             "^/_matrix/client/(api/v1|r0|v3|unstable)/register/available$",
             "^/_matrix/client/(r0|v3|unstable)/auth/.*/fallback/web$",
-            # This one needs to be routed by the .* cuz that's the room name.
-            "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/messages$",
-            "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/event",
             "^/_matrix/client/(api/v1|r0|v3|unstable)/joined_rooms",
-            "^/_matrix/client/(api/v1|r0|v3|unstable/.*)/rooms/.*/aliases",
-            "^/_matrix/client/v1/rooms/.*/timestamp_to_event$",
             "^/_matrix/client/(api/v1|r0|v3|unstable)/search",
             "^/_matrix/client/(r0|v3|unstable)/password_policy$",
-            "^/_matrix/client/(api/v1|r0|v3|unstable)/directory/room.*$",
             "^/_matrix/client/(r0|v3|unstable)/capabilities$",
         ],
         "shared_extra_conf": {},
         "worker_extra_conf": "",
     },
-    "federation_reader": {
+    "client_reader_room": {
+        "app": "synapse.app.generic_worker",
+        "listener_resources": ["client"],
+        "endpoint_patterns": [
+            "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/joined_members$",
+            "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/context/.*$",
+            "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/members$",
+            "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/state$",
+            "^/_matrix/client/v1/rooms/.*/hierarchy$",
+            "^/_matrix/client/(v1|unstable)/rooms/.*/relations/",
+            "^/_matrix/client/v1/rooms/.*/threads$",
+            "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/messages$",
+            "^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/event",
+            "^/_matrix/client/(api/v1|r0|v3|unstable/.*)/rooms/.*/aliases",
+            "^/_matrix/client/v1/rooms/.*/timestamp_to_event$",
+            # This one does not work on workers yet, I believe this is because of faster joins
+            # "^/_matrix/client/(api/v1|r0|v3|unstable)/directory/list/room.*$",
+            "^/_matrix/client/(api/v1|r0|v3|unstable)/directory/room.*$",
+        ],
+        "shared_extra_conf": {},
+        "worker_extra_conf": "",
+    },
+    "federation_reader_non_room": {
         "app": "synapse.app.generic_worker",
         "listener_resources": ["federation"],
         "endpoint_patterns": [
             "^/_matrix/federation/(v1|v2)/event/",
+            "^/_matrix/federation/(v1|v2)/publicRooms",
+            "^/_matrix/federation/(v1|v2)/query/",
+            "^/_matrix/federation/(v1|v2)/query_auth/",
+            "^/_matrix/federation/(v1|v2)/user/devices/",
+            # I found no reference to this in the docs, I think it was removed
+            # "^/_matrix/federation/(v1|v2)/get_groups_publicised$",
+            # These two should probably be moved to the frontend_proxy
+            # "^/_matrix/key/v2/server",
+            "^/_matrix/key/v2/query",
+            "^/_matrix/federation/v1/hierarchy/.*$",
+            # These are disabled because they need to be verified to work on
+            # the worker model in Synapse.
+            # "^/_matrix/federation/v1/user/keys/claim$",
+            # "^/_matrix/federation/v1/user/keys/query$",
+
+        ],
+        "shared_extra_conf": {},
+        "worker_extra_conf": "",
+    },
+    "federation_reader_room": {
+        "app": "synapse.app.generic_worker",
+        "listener_resources": ["federation"],
+        "endpoint_patterns": [
             "^/_matrix/federation/(v1|v2)/state/",
             "^/_matrix/federation/(v1|v2)/state_ids/",
             "^/_matrix/federation/(v1|v2)/backfill/",
             "^/_matrix/federation/(v1|v2)/get_missing_events/",
-            "^/_matrix/federation/(v1|v2)/publicRooms",
-            "^/_matrix/federation/(v1|v2)/query/",
             "^/_matrix/federation/(v1|v2)/make_join/",
+            "^/_matrix/federation/(v1|v2)/make_knock/",
             "^/_matrix/federation/(v1|v2)/make_leave/",
             "^/_matrix/federation/(v1|v2)/send_join/",
+            "^/_matrix/federation/(v1|v2)/send_knock/",
             "^/_matrix/federation/(v1|v2)/send_leave/",
             "^/_matrix/federation/(v1|v2)/invite/",
             "^/_matrix/federation/(v1|v2)/query_auth/",
             "^/_matrix/federation/(v1|v2)/event_auth/",
             "^/_matrix/federation/v1/timestamp_to_event/",
             "^/_matrix/federation/(v1|v2)/exchange_third_party_invite/",
-            "^/_matrix/federation/(v1|v2)/user/devices/",
-            "^/_matrix/federation/(v1|v2)/get_groups_publicised$",
-            "^/_matrix/key/v2/query",
         ],
         "shared_extra_conf": {},
         "worker_extra_conf": "",
@@ -335,6 +368,17 @@ PROMETHEUS_SCRAPE_CONFIG_BLOCK = """
         index: {index}
 """
 
+ROLES_LB_HEADER_LIST = ["synchrotron"]
+ROLES_LB_IP_LIST = ["federation_inbound"]
+ROLES_LB_ROOM_NAME: List[str] = ["client_reader_room", "federation_reader_room"]
+
+shorthand_worker_combos = {
+    "client_reader": "client_reader_room+client_reader_non_room",
+    "federation_reader": "federation_reader_room+federation_reader_non_room",
+    "room_reader": "federation_reader_room+client_reader_room",
+    "general_reader": "client_reader_non_room+federation_reader_non_room",
+}
+
 
 class Worker:
     """
@@ -415,13 +459,29 @@ class Worker:
         self.base_name = name
 
         # Split the worker types from string into list. This will have already been
-        # stripped of the potential name and multiplier. Check for duplicates in the
-        # split worker type list. No advantage in having duplicated worker types on
-        # the same worker. Two would consolidate into one. (e.g. "pusher + pusher"
-        # would resolve to a single "pusher" which may not be what was intended.)
+        # stripped of the potential name and multiplier. Allow for duplicate subtypes in the
+        # list so that two shorthand workers can have merged functionality
         self.types_list = split_and_strip_string(worker_type_str, "+")
-        if len(self.types_list) != len(set(self.types_list)):
-            error(f"Duplicate worker type found in '{worker_type_str}'! Please fix.")
+
+        # Check that the worker type requested isn't one of the special shorthand
+        # types, such as 'client_reader'. This should be a recursive check, to handle
+        # combined worker types containing one of the shorthand
+        while True:
+            if not any([roles for roles in self.types_list if "+" in roles or roles in shorthand_worker_combos]):
+                break
+            else:
+                for role in self.types_list:
+                    new_roles = None
+                    if role in shorthand_worker_combos:
+                        new_role = shorthand_worker_combos[role]
+                        new_roles = split_and_strip_string(new_role, "+")
+
+                    if "+" in role:
+                        new_roles = split_and_strip_string(role, "+")
+
+                    if new_roles:
+                        self.types_list.remove(role)
+                        self.types_list.extend(new_roles)
 
         for role in self.types_list:
             worker_config = WORKERS_CONFIG.get(role)
@@ -631,6 +691,62 @@ class Workers:
         """
         self.current_port_counter += 1
         return self.current_port_counter
+
+
+def add_hash_to_body_if_need_load_balance(
+    roles_list: Set[str], counter_for_hash_map: int
+) -> str:
+    # This presents a dilemma. Some endpoints are better load-balanced by
+    # Authorization header, and some by remote IP. What do you do if a combo
+    # worker was requested that has endpoints for both? As it is likely but
+    # not impossible that a user will be on the same IP if they have multiple
+    # devices(like at home on Wi-Fi), I believe that balancing by IP would be
+    # the broader reaching choice. This is probably only slightly better than
+    # round-robin. As such, leave balancing by remote IP as the first of the
+    # conditionals below, so if both would apply the first is used.
+
+    # Three additional notes:
+    #   1. Federation endpoints shouldn't (necessarily) have Authorization
+    #       headers, so using them on these endpoints would be a moot point.
+    #   2. For Complement, this situation is reversed as there is only ever a
+    #       single IP used during tests, 127.0.0.1.
+    #   3. IIRC, it may be possible to hash by both at once, or at least have
+    #       both hashes on the same line. If I understand that correctly, the
+    #       one that doesn't exist is effectively ignored. However, that
+    #       requires increasing the hashmap size in the nginx master config
+    #       file, which would take more jinja templating(or at least a 'sed'),
+    #       and may not be accepted upstream. Based on previous experiments,
+    #       increasing this value was required for hashing by room id, so may
+    #       end up being a path forward anyway.
+
+    # Some endpoints should be load-balanced by client IP. This way,
+    # if it comes from the same IP, it goes to the same worker and should be
+    # a smarter way to cache data. This works well for federation.
+    if any(x in ROLES_LB_IP_LIST for x in roles_list):
+        counter_for_hash_map += 1
+        return "    hash $proxy_add_x_forwarded_for;\n"
+
+    # Some endpoints should be load-balanced by Authorization header. This
+    # means that even with a different IP, a user should get the same data
+    # from the same upstream source, like a synchrotron worker, with smarter
+    # caching of data.
+    elif any(x in ROLES_LB_HEADER_LIST for x in roles_list):
+        counter_for_hash_map += 1
+        return "    hash $user_id consistent;\n"
+
+    # Some endpoints cache better when the request uri with a room name is
+    # consistently mapped to the same worker. A `map` has been placed inside
+    # synapse-nginx.conf.j2 that this will reference. If all of the worker
+    # roles are not in the same LB block, then just round-robin the lot.
+    # Otherwise any path that does not match for a room name will just
+    # end up on the first upstream in the block, effectively pinning one
+    # worker unfairly
+    elif all(x in ROLES_LB_ROOM_NAME for x in roles_list):
+        counter_for_hash_map += 1
+        return "    hash $room_name consistent;\n"
+
+    else:
+        return ""
 
 
 class NginxConfig:
@@ -1438,7 +1554,9 @@ def generate_worker_files(
         # worker_type is a string that can be:
         # 1. a single worker type
         # 2. a combination of worker types, concatenated with a '+'
-        # 3. possibly prepended with a name and a '='
+        # 3. a superset of worker types as a convenience. For instance, a client_reader worker
+        #    would actually be a 'client_reader_non_room+client_reader_room'
+        # 4. possibly prepended with a name and a '='
         # Make the worker from that string.
         new_worker_name = workers.add_worker(worker_type)
 
@@ -1600,6 +1718,8 @@ def generate_worker_files(
         "keepalive_connection_multiplier": int(
             os.environ.get("NGINX_UPSTREAM_KEEPALIVE_CONNECTION_MULTIPLIER", 1)
         ),
+        "server_max_fails": int(os.environ.get("NGINX_UPSTREAM_SERVER_MAX_FAILS", 1)),
+        "server_fail_timeout": int(os.environ.get("NGINX_UPSTREAM_SERVER_FAIL_TIMEOUT", 10))
     }
 
     # There are now two dicts to pull data from to construct the nginx config files.
@@ -1622,71 +1742,28 @@ def generate_worker_files(
     # Determine the load-balancing upstreams to configure
     nginx_upstream_config = ""
 
-    # lb stands for load-balancing. These can be added to if other worker roles are
-    # appropriate. Based on the Docs, this is it.
-    roles_lb_header_list = ["synchrotron"]
-    roles_lb_ip_list = ["federation_inbound"]
-    roles_lb_room_name: List[str] = ["client_reader"]
-
     # Keep a tally of what workers will care about having a larger hash table for nginx.
     # The main process counts as 1, so start the tally there.
     count_of_hash_requiring_workers = 1
+
+    upstream_server_fail_configs = f" max_fails={nginx_upstreams_config_dict['server_max_fails']}"
+    upstream_server_fail_configs += f" fail_timeout={nginx_upstreams_config_dict['server_fail_timeout']}"
     for upstream_name, upstream_worker_ports in nginx.upstreams_to_ports.items():
-        body = ""
         roles_list = nginx.upstreams_roles[upstream_name]
 
-        # This presents a dilemma. Some endpoints are better load-balanced by
-        # Authorization header, and some by remote IP. What do you do if a combo
-        # worker was requested that has endpoints for both? As it is likely but
-        # not impossible that a user will be on the same IP if they have multiple
-        # devices(like at home on Wi-Fi), I believe that balancing by IP would be
-        # the broader reaching choice. This is probably only slightly better than
-        # round-robin. As such, leave balancing by remote IP as the first of the
-        # conditionals below, so if both would apply the first is used.
-
-        # Three additional notes:
-        #   1. Federation endpoints shouldn't (necessarily) have Authorization
-        #       headers, so using them on these endpoints would be a moot point.
-        #   2. For Complement, this situation is reversed as there is only ever a
-        #       single IP used during tests, 127.0.0.1.
-        #   3. IIRC, it may be possible to hash by both at once, or at least have
-        #       both hashes on the same line. If I understand that correctly, the
-        #       one that doesn't exist is effectively ignored. However, that
-        #       requires increasing the hashmap size in the nginx master config
-        #       file, which would take more jinja templating(or at least a 'sed'),
-        #       and may not be accepted upstream. Based on previous experiments,
-        #       increasing this value was required for hashing by room id, so may
-        #       end up being a path forward anyway.
-
-        # Some endpoints should be load-balanced by client IP. This way,
-        # if it comes from the same IP, it goes to the same worker and should be
-        # a smarter way to cache data. This works well for federation.
-        if any(x in roles_lb_ip_list for x in roles_list):
-            body += "    hash $proxy_add_x_forwarded_for;\n"
-            count_of_hash_requiring_workers += 1
-
-        # Some endpoints should be load-balanced by Authorization header. This
-        # means that even with a different IP, a user should get the same data
-        # from the same upstream source, like a synchrotron worker, with smarter
-        # caching of data.
-        elif any(x in roles_lb_header_list for x in roles_list):
-            body += "    hash $user_id consistent;\n"
-            count_of_hash_requiring_workers += 1
-
-        # Some endpoints cache better when the request uri with a room name is
-        # consistently mapped to the same worker. A `map` has been placed inside
-        # synapse-nginx.conf.j2 that this will reference.
-        elif any(x in roles_lb_room_name for x in roles_list):
-            body += "    hash $room_name consistent;\n"
-            count_of_hash_requiring_workers += 1
+        # This will add an appropriate "hash" and type of hash(or nothing if round-robin is being used)
+        # and also increment the counter for multiplying the nginx hash map max size
+        body = add_hash_to_body_if_need_load_balance(roles_list, count_of_hash_requiring_workers)
 
         # Add specific "hosts" by port number to the upstream block. In the case of Unix
-        # sockets, borrow the port number to individualize the socket files.
+        # sockets, borrow the port number to individualize the socket files. Using `max_fails=0` so
+        # if an upstream doesn't response within it's timeout it doesn't get marked as "dead" and
+        # routed around by accident
         for port in upstream_worker_ports:
             if enable_public_unix_sockets:
-                body += f"    server unix:/run/worker.{port};\n"
+                body += f"    server unix:/run/worker.{port}{upstream_server_fail_configs};\n"
             else:
-                body += f"    server localhost:{port};\n"
+                body += f"    server localhost:{port}{upstream_server_fail_configs};\n"
 
         if nginx_upstreams_config_dict["keepalive_global_enable"]:
             # Need this to determine keepalive argument, need multiple of 2. Double the

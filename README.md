@@ -207,6 +207,17 @@ another to connect to the upstream. So, the formula is:
   by the number of server lines in a given upstream. This value is a maximum number of
   idle connections to keepalive. Default is 1, more did not seem to help during testing.
 
+### Upstream Fail Retries
+* *NGINX_UPSTREAM_SERVER_MAX_FAILS*: Defaults to `1`. The number of unsuccessful attempts to
+  communicate with the server that should happen in the duration set by
+  `NGINX_UPSTREAM_SERVER_FAIL_TIMEOUT` to consider the server unavailable for a duration also
+  set by `NGINX_UPSTREAM_SERVER_FAIL_TIMEOUT`. Set to `0` to disable accounting and effectively
+  ignores `NGINX_UPSTREAM_SERVER_FAIL_TIMEOUT`.
+* *NGINX_UPSTREAM_SERVER_FAIL_TIMEOUT*: Defaults to `10` seconds.
+  * the time during which the specified number of unsuccessful attempts to communicate with the
+    server should happen to consider the server unavailable
+  * and the period of time the server will be considered unavailable
+
 ### Proxy Buffering
 * *NGINX_PROXY_BUFFERING*: Defaults to "on", change to "off" to disable buffering of
   responses from Synapse to clients. See also `NGINX_PROXY_BUFFER_SIZE_BYTES` below.
