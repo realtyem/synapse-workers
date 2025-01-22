@@ -152,10 +152,22 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
         "app": "synapse.app.generic_worker",
         "listener_resources": ["client"],
         "endpoint_patterns": [
-            "^/_matrix/client/(r0|v3|unstable)/sync$",
+            "^/_matrix/client/(r0|v3)/sync$",
             "^/_matrix/client/(api/v1|r0|v3)/events$",
             "^/_matrix/client/(api/v1|r0|v3)/initialSync$",
             "^/_matrix/client/(api/v1|r0|v3)/rooms/[^/]+/initialSync$",
+        ],
+        "shared_extra_conf": {},
+        "worker_extra_conf": "",
+    },
+    "sliding_synchrotron": {
+        "app": "synapse.app.generic_worker",
+        "listener_resources": ["client"],
+        "endpoint_patterns": [
+            # I'm not sure if this will be v4 or v5 when it's done. Classic sync is V2
+            # but is registered on v3 above. Sync V3 was MSC3575 and was recently closed
+            # in favor of MSC4186, however this endpoint uses the MSC3575 unstable endpoint
+            "^/_matrix/client/unstable/.*/sync$",
         ],
         "shared_extra_conf": {},
         "worker_extra_conf": "",
