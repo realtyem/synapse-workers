@@ -40,4 +40,4 @@ scrape_configs:
     metrics_path: "/_synapse/metrics"
     file_sd_configs:
       - files:
-        - '/data/target.json'
+        - "{{ target_file_name }}"

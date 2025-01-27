@@ -947,6 +947,7 @@ def convert(src: str, dst: str, mode: str = "a", **template_vars: object) -> Non
         outfile.write("\n")
 
         outfile.write(rendered)
+        outfile.write("\n")
 
 
 def getenv_bool(name: str, default: bool = False) -> bool:
@@ -1963,7 +1964,7 @@ def generate_worker_files(
                 "labels": {
                     "instance": "Synapse",
                     "job": "main_process",
-                    "index": 1,
+                    "index": "1",
                 }
             }
         )
@@ -1985,10 +1986,18 @@ def generate_worker_files(
                     }
                 }
             )
-        prom_target_json_done = json.dumps(prom_target_json)
-        # Use mode "w" here to always overwrite the file
+        prom_target_json_done = json.dumps(prom_target_json, indent=4)
         config_dir = os.environ.get("SYNAPSE_CONFIG_DIR", "/data")
-        with open(f"{config_dir}/target.json", "w") as outfile:
+        # Make a subdirectory. Prometheus does a 'file watch' on the target.json file,
+        # but the docs say it will watch the parent directory too. Limit that scope
+        prom_target_dir = config_dir + "/prom_targets"
+
+        # It's not executable, but it should be read/write accessible
+        os.makedirs(prom_target_dir, 0x666, exist_ok=True)
+        target_file_name = f"{prom_target_dir}/target.json"
+
+        # Use mode "w" here to always overwrite the file
+        with open(target_file_name, "w") as outfile:
             outfile.write(prom_target_json_done)
             outfile.write("\n")
 
@@ -1998,6 +2007,7 @@ def generate_worker_files(
             "/etc/prometheus/prometheus.yml",
             metric_scrape_interval=os.environ.get("PROMETHEUS_SCRAPE_INTERVAL", "15s"),
             prom_remote_write_url=prom_remote_write_url,
+            target_file_name=target_file_name,
         )
 
     # Supervisord config
