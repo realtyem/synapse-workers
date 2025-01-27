@@ -83,6 +83,7 @@ MAIN_PROCESS_NEW_METRICS_UNIX_SOCKET_PATH = "/run/main_metrics.sock"
 enable_compressor = False
 enable_coturn = False
 enable_prometheus = False
+enable_metric_endpoints = False
 enable_redis_exporter = False
 enable_postgres_exporter = False
 # Set this default to reflect the same as loaded below, so no juggling of types is needed
@@ -1145,10 +1146,6 @@ def generate_base_homeserver_config() -> None:
     # note that this script is copied in from the official, monolith dockerfile
     if "SYNAPSE_HTTP_PORT" not in os.environ:
         os.environ["SYNAPSE_HTTP_PORT"] = str(MAIN_PROCESS_HTTP_LISTENER_PORT)
-    if "SYNAPSE_METRICS_HTTP_PORT" not in os.environ:
-        os.environ["SYNAPSE_METRICS_HTTP_PORT"] = str(
-            MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT
-        )
     subprocess.run(["/usr/local/bin/python", "/start.py", "migrate_config"], check=True)
 
 
@@ -1175,6 +1172,7 @@ def generate_worker_files(
     # pass through global variables for the add-ons
     # the auto compressor is taken care of in main
     global enable_prometheus
+    global enable_metric_endpoints
     global enable_redis_exporter
     enable_manhole_master = getenv_bool("SYNAPSE_MANHOLE_MASTER", False)
     enable_manhole_workers = getenv_bool("SYNAPSE_MANHOLE_WORKERS", False)
@@ -2053,6 +2051,7 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
     global enable_compressor
     global enable_coturn
     global enable_prometheus
+    global enable_metric_endpoints
     global enable_redis_exporter
     global enable_postgres_exporter
     global prometheus_storage_retention_time
@@ -2062,6 +2061,13 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
     )
     enable_coturn = getenv_bool("SYNAPSE_ENABLE_BUILTIN_COTURN", False)
     enable_prometheus = getenv_bool("SYNAPSE_METRICS", False)
+    enable_metric_endpoints = getenv_bool("SYNAPSE_METRICS_ENABLE_LISTENERS", True if enable_prometheus else False)
+    if enable_metric_endpoints:
+        # This is forced so it will be picked up when generate_base_homeserver_config() is called
+        os.environ["SYNAPSE_METRICS_HTTP_PORT"] = str(
+            MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT
+        )
+
     enable_redis_exporter = (
         getenv_bool("SYNAPSE_ENABLE_REDIS_METRIC_EXPORT", False)
         and enable_prometheus is True
