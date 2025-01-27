@@ -35,10 +35,6 @@ scrape_configs:
   - job_name: "synapse"
     scrape_interval: {{ metric_scrape_interval }}
     metrics_path: "/_synapse/metrics"
-    static_configs:
-    - targets: ["{{ main_process_target}}"]
-      labels:
-        instance: "Synapse"
-        job: "main_process"
-        index: 1
-{{ metric_endpoint_locations }}
+    file_sd_configs:
+      - files:
+        - '/data/target.json'

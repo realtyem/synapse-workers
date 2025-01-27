@@ -1950,7 +1950,24 @@ def generate_worker_files(
     # Prometheus config, if enabled
     # Set up the metric end point locations, names and indexes
     if enable_prometheus:
-        prom_endpoint_config = ""
+        main_process_target = (
+            f"{MAIN_PROCESS_NEW_METRICS_UNIX_SOCKET_PATH}"
+            if enable_metrics_unix_socket
+            else f"localhost:{MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT}"
+        )
+
+        prom_target_json = []
+        prom_target_json.append(
+            {
+                "targets": [main_process_target],
+                "labels": {
+                    "instance": "Synapse",
+                    "job": "main_process",
+                    "index": 1,
+                }
+            }
+        )
+
         for _, worker in workers.worker.items():
             worker_portpath_target_number = worker.metrics_port
             metrics_target = (
@@ -1958,21 +1975,26 @@ def generate_worker_files(
                 if enable_metrics_unix_socket
                 else f"127.0.0.1:{worker_portpath_target_number}"
             )
-            prom_endpoint_config += PROMETHEUS_SCRAPE_CONFIG_BLOCK.format(
-                name=worker.base_name,
-                metrics_target=metrics_target,
-                index=str(worker.index),
+            prom_target_json.append(
+                {
+                    "targets": [metrics_target],
+                    "labels": {
+                        "instance": "Synapse",
+                        "job": worker.base_name,
+                        "index": str(worker.index),
+                    }
+                }
             )
-        main_process_target = (
-            f"{MAIN_PROCESS_NEW_METRICS_UNIX_SOCKET_PATH}"
-            if enable_metrics_unix_socket
-            else f"localhost:{MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT}"
-        )
+        prom_target_json_done = json.dumps(prom_target_json)
+        # Use mode "w" here to always overwrite the file
+        config_dir = os.environ.get("SYNAPSE_CONFIG_DIR", "/data")
+        with open(f"{config_dir}/target.json", "w") as outfile:
+            outfile.write(prom_target_json_done)
+            outfile.write("\n")
+
         convert(
             "/conf/prometheus.yml.j2",
             "/etc/prometheus/prometheus.yml",
-            main_process_target=main_process_target,
-            metric_endpoint_locations=prom_endpoint_config,
             metric_scrape_interval=os.environ.get("PROMETHEUS_SCRAPE_INTERVAL", "15s"),
         )
 
