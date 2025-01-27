@@ -1992,10 +1992,12 @@ def generate_worker_files(
             outfile.write(prom_target_json_done)
             outfile.write("\n")
 
+        prom_remote_write_url = os.environ.get("PROMETHEUS_REMOTE_WRITE_HTTP_URL", None)
         convert(
             "/conf/prometheus.yml.j2",
             "/etc/prometheus/prometheus.yml",
             metric_scrape_interval=os.environ.get("PROMETHEUS_SCRAPE_INTERVAL", "15s"),
+            prom_remote_write_url=prom_remote_write_url,
         )
 
     # Supervisord config

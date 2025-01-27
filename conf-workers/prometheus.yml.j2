@@ -5,7 +5,10 @@ global:
     monitor: 'monitor'
 rule_files:
   - "/etc/prometheus/synapse-V2.rules"
-
+{% if prom_remote_write_url %}
+remote_write:
+  - url: {{ prom_remote_write_url }}
+{% endif %}
 scrape_configs:
   - job_name: pg_exporter
     static_configs:
