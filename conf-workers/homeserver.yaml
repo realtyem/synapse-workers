@@ -50,7 +50,7 @@ listeners:
 {% endif %}
       - names: [federation]
         compress: true
-{% if SYNAPSE_METRICS == "True" %}
+{% if SYNAPSE_METRICS_HTTP_PORT %}
   - port: {{ SYNAPSE_METRICS_HTTP_PORT or 8060}}
     bind_address: '0.0.0.0'
     type: metrics
