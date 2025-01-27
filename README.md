@@ -109,17 +109,6 @@ Paths to map to somewhere as volumes
 ### Additions
 Anything in this section can be enabled by giving it a value of  'yes', 'y', '1', 'true', 't',
 or 'on'. Anything else is a 'no'.
-* *SYNAPSE_METRICS*: This not only is part of the generation of the initial homeserver.yaml file,
-  but will also enable the builtin prometheus service, enable collection of Nginx metrics
-  and add the necessary bits to Synapse to expose metrics.
-* *SYNAPSE_METRICS_UNIX_SOCKETS*: Enable Unix socket scraping support. **IMPORTANT NOTE**:
-  this does not currently work as Prometheus does not support scraping a Unix socket for
-  general scraping. See [issue](github.com/prometheus/prometheus/issues/12024) for details.
-* *SYNAPSE_ENABLE_REDIS_METRIC_EXPORT*: Redis is built into the docker image. It will
- automatically be used whenever a worker or multiple workers are declared. This enables
- exporting Redis metrics to the built-in Prometheus service. SYNAPSE_METRICS is required.
-* *SYNAPSE_ENABLE_POSTGRES_METRIC_EXPORT*: If you are using a Postgresql Database, it can grab
-* metrics from it as well. SYNAPSE_METRICS is required.
 * *SYNAPSE_ENABLE_COMPRESSOR*: The Matrix team made a database compressor that can make the
  state parts of the database less....sprawly? It's included by default. Enable to run it as a
  cron job every sunday at 1am. Actual space saving will not occur until your next auto-vaccuum
@@ -148,10 +137,33 @@ Grafana dashboards are provided in the contrib directory of the source repo.<br>
   * *SYNAPSE_HTTP_REPLICATION_UNIX_SOCKETS*: set to anything(1 is fine) to enable internal
     Synapse HTTP replication endpoints to use Unix sockets. This only is useful if you
     have any workers declared(see *SYNAPSE_WORKER_TYPES* above).
+* **
+## Metrics
+* *SYNAPSE_METRICS*: This will enable the built-in prometheus service and set it up to scrape
+  the main process and any workers. If the below other variables are declared, they will be
+  incorporated into the scrape targets.
+* *SYNAPSE_METRICS_ENABLE_LISTENERS*: Defaults to *True* if *SYNAPSE_METRICS* is also *True*,
+  otherwise *False*. This can be used to force the metric endpoints in Synapse to be setup.
+* *SYNAPSE_METRICS_UNIX_SOCKETS*: Enable Unix socket scraping support. **IMPORTANT NOTE**:
+  this does not currently work as Prometheus does not support scraping a Unix socket for
+  general scraping. See [issue](github.com/prometheus/prometheus/issues/12024) for details.
+* *SYNAPSE_ENABLE_REDIS_METRIC_EXPORT*: Redis is built into the docker image. It will
+ automatically be used whenever a worker or multiple workers are declared. This enables
+ exporting Redis metrics to the built-in Prometheus service. SYNAPSE_METRICS is required.
+* *SYNAPSE_ENABLE_POSTGRES_METRIC_EXPORT*: If you are using a Postgresql Database, it can grab
+  metrics from it as well. SYNAPSE_METRICS is required.
+* *PROMETHEUS_REMOTE_WRITE_HTTP_URL*: No default. If set to an external timescale database,
+  will add the correct `remote_write` block into the prometheus configuration. Use for things
+  like [VictoriaMetrics](https://github.com/VictoriaMetrics/VictoriaMetrics)). See
+  [prometheus docs](https://prometheus.io/docs/prometheus/latest/storage/#remote-storage-integrations)
+  for more details about remote storage options. Using the default port and adjusting
+  '<victoriametrics-addr>' for your own IP or hostname, this
+  `http://<victoriametrics-addr>:8428/api/v1/write` should be enough to get started.
 * *PROMETHEUS_SCRAPE_INTERVAL*: Defaults to 15 seconds, allows the built-in Prometheus
   scrape interval to be changed. This will be set to the global `scrape_interval` as well
   as the one for the Synapse job.
 * *PROMETHEUS_STORAGE_RETENTION_TIME*: Defaults to `1y`. Time for prometheus to retain metrics data. (https://prometheus.io/docs/prometheus/latest/storage/#operational-aspects)
+
 * **
 
 ## Nginx configuration
