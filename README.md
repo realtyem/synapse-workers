@@ -152,6 +152,9 @@ Grafana dashboards are provided in the contrib directory of the source repo.<br>
  exporting Redis metrics to the built-in Prometheus service. SYNAPSE_METRICS is required.
 * *SYNAPSE_ENABLE_POSTGRES_METRIC_EXPORT*: If you are using a Postgresql Database, it can grab
   metrics from it as well. SYNAPSE_METRICS is required.
+### Prometheus specifics
+* *PROMETHEUS_INSTANCE_NAME*: Defaults to "Synapse". Use this to customize what name you wish
+  for this instance to carry in Prometheus. A server name is appropriate here
 * *PROMETHEUS_REMOTE_WRITE_HTTP_URL*: No default. If set to an external timescale database,
   will add the correct `remote_write` block into the prometheus configuration. Use for things
   like [VictoriaMetrics](https://github.com/VictoriaMetrics/VictoriaMetrics)). See
@@ -159,10 +162,20 @@ Grafana dashboards are provided in the contrib directory of the source repo.<br>
   for more details about remote storage options. Using the default port and adjusting
   '<victoriametrics-addr>' for your own IP or hostname, this
   `http://<victoriametrics-addr>:8428/api/v1/write` should be enough to get started.
+
+See [Prometheus configuration docs](https://prometheus.io/docs/prometheus/latest/configuration/configuration)
+for more information on the below options
+
+* *PROMETHEUS_REMOTE_WRITE_CAPACITY*: Defaults to 10000
+* *PROMETHEUS_REMOTE_WRITE_MAX_SAMPLES_PER_SEND*: Defaults to 2000
+* *PROMETHEUS_REMOTE_WRITE_MIN_SHARDS*: Defaults to 1
+* *PROMETHEUS_REMOTE_WRITE_MAX_SHARDS*: Defaults to 50
 * *PROMETHEUS_SCRAPE_INTERVAL*: Defaults to 15 seconds, allows the built-in Prometheus
   scrape interval to be changed. This will be set to the global `scrape_interval` as well
   as the one for the Synapse job.
-* *PROMETHEUS_STORAGE_RETENTION_TIME*: Defaults to `1y`. Time for prometheus to retain metrics data. (https://prometheus.io/docs/prometheus/latest/storage/#operational-aspects)
+* *PROMETHEUS_STORAGE_RETENTION_TIME*: Defaults to `1y`. Time for prometheus to retain metrics data.
+  [More on this](https://prometheus.io/docs/prometheus/latest/storage/#operational-aspects). If you have
+  enabled remote write above, you can turn this down to some more reasonable.
 
 * **
 

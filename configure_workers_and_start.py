@@ -86,8 +86,6 @@ enable_prometheus = False
 enable_metric_endpoints = False
 enable_redis_exporter = False
 enable_postgres_exporter = False
-# Set this default to reflect the same as loaded below, so no juggling of types is needed
-prometheus_storage_retention_time = "1y"
 
 # Workers with exposed endpoints needs either "client", "federation", or "media"
 #   listener_resources
@@ -153,22 +151,10 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
         "app": "synapse.app.generic_worker",
         "listener_resources": ["client"],
         "endpoint_patterns": [
-            "^/_matrix/client/(r0|v3)/sync$",
+            "^/_matrix/client/(r0|v3|unstable)/sync$",
             "^/_matrix/client/(api/v1|r0|v3)/events$",
             "^/_matrix/client/(api/v1|r0|v3)/initialSync$",
             "^/_matrix/client/(api/v1|r0|v3)/rooms/[^/]+/initialSync$",
-        ],
-        "shared_extra_conf": {},
-        "worker_extra_conf": "",
-    },
-    "sliding_synchrotron": {
-        "app": "synapse.app.generic_worker",
-        "listener_resources": ["client"],
-        "endpoint_patterns": [
-            # I'm not sure if this will be v4 or v5 when it's done. Classic sync is V2
-            # but is registered on v3 above. Sync V3 was MSC3575 and was recently closed
-            # in favor of MSC4186, however this endpoint uses the MSC3575 unstable endpoint
-            "^/_matrix/client/unstable/.*/sync$",
         ],
         "shared_extra_conf": {},
         "worker_extra_conf": "",
@@ -373,13 +359,6 @@ upstream {upstream_name} {{
 }}
 """
 
-PROMETHEUS_SCRAPE_CONFIG_BLOCK = """
-    - targets: ["{metrics_target}"]
-      labels:
-        instance: "Synapse"
-        job: "{name}"
-        index: {index}
-"""
 
 ROLES_LB_HEADER_LIST = ["synchrotron"]
 ROLES_LB_IP_LIST = ["federation_inbound"]
@@ -760,6 +739,47 @@ def add_hash_to_body_if_need_load_balance(
 
     else:
         return ""
+
+
+class PromConfig:
+    """
+    Class to hold the data for configuring prometheus. These are all set to
+    default values. See the Prometheus docs on configuration for up-to-date
+    descriptions.
+    https://prometheus.io/docs/prometheus/latest/configuration/configuration
+
+    Attributes starting with 'rw_' are for remote write
+
+    Attributes:
+        instance_name: The name to pre-pend to this instance. For example, "Synapse" would then
+            make the redis exported data have an instance of "Synapse-Redis"
+        storage_retention_time:
+        rw_url_path:
+        rw_capacity:
+        rw_max_samples_per_send:
+        rw_min_shards:
+        rw_max_shards:
+        file_sd_targets_file:
+    """
+    instance_name: str = "Synapse"
+    storage_retention_time = "1y"
+    rw_url_path: Optional[str] = None
+    rw_capacity: str = "10000"
+    rw_max_samples_per_send: str = "2000"
+    rw_min_shards: str = "1"
+    rw_max_shards: str = "50"
+    file_sd_targets_file: str = ""
+
+    def __init__(self) -> None:
+        self.instance_name = os.environ.get("PROMETHEUS_INSTANCE_NAME", self.instance_name)
+        self.storage_retention_time = os.environ.get("PROMETHEUS_STORAGE_RETENTION_TIME", self.storage_retention_time)
+        self.rw_url_path = os.environ.get("PROMETHEUS_REMOTE_WRITE_HTTP_URL", None)
+        self.rw_capacity = os.environ.get("PROMETHEUS_REMOTE_WRITE_CAPACITY", self.rw_capacity)
+        self.rw_max_samples_per_send = os.environ.get(
+            "PROMETHEUS_REMOTE_WRITE_MAX_SAMPLES_PER_SEND", self.rw_max_samples_per_send
+        )
+        self.rw_min_shards = os.environ.get("PROMETHEUS_REMOTE_WRITE_MIN_SHARDS", self.rw_min_shards)
+        self.rw_max_shards = os.environ.get("PROMETHEUS_REMOTE_WRITE_MAX_SHARDS", self.rw_max_shards)
 
 
 class NginxConfig:
@@ -1950,24 +1970,24 @@ def generate_worker_files(
 
     # Prometheus config, if enabled
     # Set up the metric end point locations, names and indexes
+    # Run this no matter what, need to establish the data for supervisor
+    prom_config = PromConfig()
     if enable_prometheus:
+
         main_process_target = (
             f"{MAIN_PROCESS_NEW_METRICS_UNIX_SOCKET_PATH}"
             if enable_metrics_unix_socket
             else f"localhost:{MAIN_PROCESS_HTTP_METRICS_LISTENER_PORT}"
         )
 
-        prom_target_json = []
-        prom_target_json.append(
-            {
-                "targets": [main_process_target],
-                "labels": {
-                    "instance": "Synapse",
-                    "job": "main_process",
-                    "index": "1",
-                }
+        prom_target_json = [{
+            "targets": [main_process_target],
+            "labels": {
+                "instance": prom_config.instance_name,
+                "job": "main process",
+                "index": "1",
             }
-        )
+        }]
 
         for _, worker in workers.worker.items():
             worker_portpath_target_number = worker.metrics_port
@@ -1980,13 +2000,14 @@ def generate_worker_files(
                 {
                     "targets": [metrics_target],
                     "labels": {
-                        "instance": "Synapse",
+                        "instance": prom_config.instance_name,
                         "job": worker.base_name,
                         "index": str(worker.index),
                     }
                 }
             )
         prom_target_json_done = json.dumps(prom_target_json, indent=4)
+
         config_dir = os.environ.get("SYNAPSE_CONFIG_DIR", "/data")
         # Make a subdirectory. Prometheus does a 'file watch' on the target.json file,
         # but the docs say it will watch the parent directory too. Limit that scope
@@ -1994,20 +2015,18 @@ def generate_worker_files(
 
         # It's not executable, but it should be read/write accessible
         os.makedirs(prom_target_dir, 0x666, exist_ok=True)
-        target_file_name = f"{prom_target_dir}/target.json"
+        prom_config.file_sd_targets_file = f"{prom_target_dir}/target.json"
 
         # Use mode "w" here to always overwrite the file
-        with open(target_file_name, "w") as outfile:
+        with open(prom_config.file_sd_targets_file, "w") as outfile:
             outfile.write(prom_target_json_done)
             outfile.write("\n")
 
-        prom_remote_write_url = os.environ.get("PROMETHEUS_REMOTE_WRITE_HTTP_URL", None)
         convert(
             "/conf/prometheus.yml.j2",
             "/etc/prometheus/prometheus.yml",
             metric_scrape_interval=os.environ.get("PROMETHEUS_SCRAPE_INTERVAL", "15s"),
-            prom_remote_write_url=prom_remote_write_url,
-            target_file_name=target_file_name,
+            prom_config=prom_config,
         )
 
     # Supervisord config
@@ -2022,7 +2041,7 @@ def generate_worker_files(
         enable_prometheus=enable_prometheus,
         enable_compressor=enable_compressor,
         enable_coturn=enable_coturn,
-        prometheus_storage_retention_time=prometheus_storage_retention_time,
+        prometheus_storage_retention_time=prom_config.storage_retention_time,
     )
 
     convert(
@@ -2088,7 +2107,6 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
     global enable_metric_endpoints
     global enable_redis_exporter
     global enable_postgres_exporter
-    global prometheus_storage_retention_time
     enable_compressor = (
         getenv_bool("SYNAPSE_ENABLE_COMPRESSOR", False)
         and "POSTGRES_PASSWORD" in environ
@@ -2109,9 +2127,6 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
     enable_postgres_exporter = (
         getenv_bool("SYNAPSE_ENABLE_POSTGRES_METRIC_EXPORT", False)
         and "POSTGRES_PASSWORD" in environ
-    )
-    prometheus_storage_retention_time = str(
-        os.getenv("PROMETHEUS_STORAGE_RETENTION_TIME", "1y")
     )
 
     disable_nginx_logrotate = getenv_bool("NGINX_DISABLE_LOGROTATE", False)
