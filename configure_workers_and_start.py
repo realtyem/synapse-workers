@@ -49,6 +49,7 @@
 # functionality should continue to work if so.
 
 import codecs
+import json
 import os
 import platform
 import re
@@ -65,8 +66,6 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 
 DEBUG = True
-if DEBUG is True:
-    import json
 
 MAIN_PROCESS_HTTP_LISTENER_PORT = 8008
 MAIN_PROCESS_HTTP_FED_LISTENER_PORT = 8448
