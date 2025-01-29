@@ -164,18 +164,35 @@ Grafana dashboards are provided in the contrib directory of the source repo.<br>
   `http://<victoriametrics-addr>:8428/api/v1/write` should be enough to get started.
 
 See [Prometheus configuration docs](https://prometheus.io/docs/prometheus/latest/configuration/configuration)
-for more information on the below options
+for more information on the below options. The first 4 are potentially useful, the rest are provided
+just in case.
+
+<details>
+<summary>More Prometheus options
+</summary>
 
 * *PROMETHEUS_REMOTE_WRITE_CAPACITY*: Defaults to 10000
 * *PROMETHEUS_REMOTE_WRITE_MAX_SAMPLES_PER_SEND*: Defaults to 2000
 * *PROMETHEUS_REMOTE_WRITE_MIN_SHARDS*: Defaults to 1
 * *PROMETHEUS_REMOTE_WRITE_MAX_SHARDS*: Defaults to 50
+* *PROMETHEUS_REMOTE_WRITE_BATCH_SEND_DEADLINE*: Defaults to 5s
+* *PROMETHEUS_REMOTE_WRITE_MIN_BACKOFF*: Defaults to 30ms
+* *PROMETHEUS_REMOTE_WRITE_MAX_BACKOFF*: Defaults to 5s
+* *PROMETHEUS_REMOTE_WRITE_TIMEOUT*: Defaults to 30s
+* <del>*PROMETHEUS_REMOTE_WRITE_SEND_EXEMPLARS*: Defaults to False(may require support from remote TSDB)</del>
+* *PROMETHEUS_REMOTE_WRITE_SEND_NATIVE_HISTOGRAMS*: Defaults to False(may require support from remote TSDB)
+* <del>*PROMETHEUS_REMOTE_WRITE_ROUND_ROBIN_DNS*: Defaults to False. Only really useful if not using an IP address
+  for the remote TSDB.</del>
+* *PROMETHEUS_REMOTE_WRITE_RETRY_ON_HTTP_429*: Defaults to False
+* <del>*PROMETHEUS_REMOTE_WRITE_SAMPLE_AGE_LIMIT*: *Currently Disabled*. Defaults to 0s, which disables it</del>
 * *PROMETHEUS_SCRAPE_INTERVAL*: Defaults to 15 seconds, allows the built-in Prometheus
   scrape interval to be changed. This will be set to the global `scrape_interval` as well
   as the one for the Synapse job.
 * *PROMETHEUS_STORAGE_RETENTION_TIME*: Defaults to `1y`. Time for prometheus to retain metrics data.
   [More on this](https://prometheus.io/docs/prometheus/latest/storage/#operational-aspects). If you have
   enabled remote write above, you can turn this down to some more reasonable.
+
+</details>
 
 * **
 

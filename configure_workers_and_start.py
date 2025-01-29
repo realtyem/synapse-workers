@@ -759,6 +759,12 @@ class PromConfig:
         rw_max_samples_per_send:
         rw_min_shards:
         rw_max_shards:
+        rw_protobuf_message: This is complicated and isn't used
+        rw_remote_timeout:
+        rw_headers: Looks like this needs to be a list of key:value pairs. Isn't used
+        rw_send_exemplars:
+        rw_name: Used to label the remote write config. Isn't used(No defaults)
+        rw_send_native_histograms:
         file_sd_targets_file:
     """
     instance_name: str = "Synapse"
@@ -768,6 +774,16 @@ class PromConfig:
     rw_max_samples_per_send: str = "2000"
     rw_min_shards: str = "1"
     rw_max_shards: str = "50"
+    rw_batch_send_deadline: str = "5s"
+    rw_min_backoff: str = "30ms"
+    rw_max_backoff: str = "5s"
+    rw_retry_on_http_429: bool = False
+    rw_sample_age_limit: str = "0s"
+
+    rw_remote_timeout: str = "30s"
+    rw_send_exemplars: bool = False
+    rw_send_native_histograms: bool = False
+    rw_round_robin_dns: bool = False
     file_sd_targets_file: str = ""
 
     def __init__(self) -> None:
@@ -780,6 +796,22 @@ class PromConfig:
         )
         self.rw_min_shards = os.environ.get("PROMETHEUS_REMOTE_WRITE_MIN_SHARDS", self.rw_min_shards)
         self.rw_max_shards = os.environ.get("PROMETHEUS_REMOTE_WRITE_MAX_SHARDS", self.rw_max_shards)
+        self.rw_batch_send_deadline = os.environ.get(
+            "PROMETHEUS_REMOTE_WRITE_BATCH_SEND_DEADLINE", self.rw_batch_send_deadline
+        )
+        self.rw_min_backoff = os.environ.get("PROMETHEUS_REMOTE_WRITE_MIN_BACKOFF", self.rw_min_backoff)
+        self.rw_max_backoff = os.environ.get("PROMETHEUS_REMOTE_WRITE_MAX_BACKOFF", self.rw_max_backoff)
+        self.rw_retry_on_http_429 = os.environ.get(
+            "PROMETHEUS_REMOTE_WRITE_RETRY_ON_HTTP_429", self.rw_retry_on_http_429
+        )
+        self.rw_sample_age_limit = os.environ.get("PROMETHEUS_REMOTE_WRITE_SAMPLE_AGE_LIMIT", self.rw_sample_age_limit)
+
+        self.rw_remote_timeout = os.environ.get("PROMETHEUS_REMOTE_WRITE_REMOTE_TIMEOUT", self.rw_remote_timeout)
+        self.rw_send_exemplars = os.environ.get("PROMETHEUS_REMOTE_WRITE_SEND_EXEMPLARS", self.rw_send_exemplars)
+        self.rw_send_native_histograms = os.environ.get(
+            "PROMETHEUS_REMOTE_WRITE_SEND_NATIVE_HISTOGRAMS", self.rw_send_native_histograms
+        )
+        self.rw_round_robin_dns = os.environ.get("PROMETHEUS_REMOTE_WRITE_ROUND_ROBIN_DNS", self.rw_round_robin_dns)
 
 
 class NginxConfig:
