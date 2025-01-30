@@ -5,40 +5,54 @@ global:
     monitor: 'monitor'
 rule_files:
   - "/etc/prometheus/synapse-V2.rules"
+{% if prom_config.rw_url_path %}
+remote_write:
+  - url: {{ prom_config.rw_url_path }}
+    remote_timeout: {{ prom_config.rw_remote_timeout }}
+#    send_exemplars: {{ prom_config.rw_send_exemplars | string | lower }}
+    send_native_histograms: {{ prom_config.rw_send_native_histograms | string | lower }}
+#    round_robin_dns: {{ prom_config.rw_round_robin_dns | string | lower }}
+    queue_config:
+      max_samples_per_send: {{ prom_config.rw_max_samples_per_send}}
+      capacity: {{ prom_config.rw_capacity }}
+      min_shards: {{ prom_config.rw_min_shards }}
+      max_shards: {{ prom_config.rw_max_shards }}
+      batch_send_deadline: {{ prom_config.rw_batch_send_deadline }}
+      min_backoff: {{ prom_config.rw_min_backoff }}
+      max_backoff: {{ prom_config.rw_max_backoff }}
+      retry_on_http_429: {{ prom_config.rw_retry_on_http_429 | string | lower }}
+#      sample_age_limit: {{ prom_config.rw_sample_age_limit }}
 
+{% endif %}
 scrape_configs:
   - job_name: pg_exporter
     static_configs:
     - targets: ["localhost:9187"]
       labels:
-        instance: "Synapse Postgres"
+        instance: "{{ prom_config.instance_name }} Postgres"
   - job_name: redis_exporter
     static_configs:
     - targets: ["localhost:9121"]
       labels:
-        instance: "Synapse-Redis"
+        instance: "{{ prom_config.instance_name }}-Redis"
   - job_name: coturn_exporter
     static_configs:
     - targets: ["localhost:9641"]
       labels:
-        instance: "Synapse-Coturn"
+        instance: "{{ prom_config.instance_name }}-Coturn"
   - job_name: nginx_exporter
     static_configs:
     - targets: ["localhost:9113"]
       labels:
-        instance: "Synapse-Nginx"
+        instance: "{{ prom_config.instance_name }}-Nginx"
   - job_name: nginx_log_exporter
     static_configs:
     - targets: ["localhost:9112"]
       labels:
-        instance: "Synapse-Nginx-Logs"
+        instance: "{{ prom_config.instance_name }}-Nginx-Logs"
   - job_name: "synapse"
     scrape_interval: {{ metric_scrape_interval }}
     metrics_path: "/_synapse/metrics"
-    static_configs:
-    - targets: ["{{ main_process_target}}"]
-      labels:
-        instance: "Synapse"
-        job: "main_process"
-        index: 1
-{{ metric_endpoint_locations }}
+    file_sd_configs:
+      - files:
+        - "{{ prom_config.file_sd_targets_file }}"
