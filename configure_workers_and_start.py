@@ -1991,6 +1991,36 @@ def generate_worker_files(
         config=nginx_file_config_dict,
     )
 
+    external_reverse_proxy_ip = os.environ.get("EXTERNAL_REVERSE_PROXY_IP", None)
+
+    if not external_reverse_proxy_ip:
+        # Found the guts of this at:
+        # https://gist.github.com/ptisserand/e114e6f1887366fd25cd53a5fd9646a9
+        try:
+            gateway_hex_ip = None
+            with open("/proc/self/net/route") as routes:
+                for line in routes:
+                    parts = line.split('\t')
+                    # Get the lowest metric gateway from 'routes'. This provides us with the IP
+                    # address for the external reverse proxy hosting this container. If this was
+                    # not in a docker container, it would probably just get the normal gateway
+                    # of the host machine
+                    if '00000000' == parts[1]:
+                        gateway_hex_ip = parts[2]
+                        break
+
+            if gateway_hex_ip is not None and len(gateway_hex_ip) == 8:
+                # Reverse order, convert hex to int
+                external_reverse_proxy_ip = ("%i.%i.%i.%i" %
+                              (int(gateway_hex_ip[6:8], 16),
+                               int(gateway_hex_ip[4:6], 16),
+                               int(gateway_hex_ip[2:4], 16),
+                               int(gateway_hex_ip[0:2], 16)))
+
+        except Exception as e:
+            error(f"ERROR while trying to detect your external reverse proxy IP: {e}\n"
+                  "Please set it explicitly on 'EXTERNAL_REVERSE_PROXY_IP'")
+
     # Nginx location config for Synapse
     convert(
         "/conf/synapse-nginx.conf.j2",
@@ -2009,6 +2039,9 @@ def generate_worker_files(
         # Part of the SYNAPSE_HTTP_FED_PORT experiment. Empty is ok here.
         main_proxy_pass_fed_port=MAIN_PROCESS_NEW_FEDERATION_PORT,
         config=nginx_upstreams_config_dict,
+        # Since this is a docker image, we need the outside IP of this container
+        # to "trust" that it can be removed from the Real-ID header
+        external_reverse_proxy_ip=external_reverse_proxy_ip,
     )
 
     # Prometheus config, if enabled

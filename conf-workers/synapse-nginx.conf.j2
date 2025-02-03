@@ -2,7 +2,7 @@
 # configure_workers_and_start.py uses and amends to this file depending on the workers
 # that have been selected.
 
-log_format backend '[$time_local] - $proxy_add_x_forwarded_for - URT:$upstream_response_time request_time $request_time $status $upstream_addr: $request';
+log_format backend '[$time_local] - $remote_addr - URT:$upstream_response_time request_time $request_time $status $upstream_addr: $request';
 
 # This log format is used for the mtail metrics scraping from the log. Both this and the
 # one above get written to logs.
@@ -76,6 +76,15 @@ server {
     ssl_session_tickets off; # Requires nginx >= 1.5.9
 {% endif %}
 
+{% if external_reverse_proxy_ip %}
+    real_ip_header X-Forwarded-For;
+    # By setting this to the IP address of the external reverse proxy, it can be
+    # excluded from the load balancing by IP hashing. It also shortens logging lines
+    # by(at least) one address. If we were in the business of detecting IP spoofing
+    # we would use it for that too.
+    set_real_ip_from {{ external_reverse_proxy_ip }};
+    real_ip_recursive on;
+{% endif %}
     server_name localhost;
 
     # access.log is the human readable log

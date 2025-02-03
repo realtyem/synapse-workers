@@ -209,6 +209,10 @@ proxy. This is not optimized for Synapse. We can do better.
 * *NGINX_GENERAL_PAGE_SIZE_BYTES*: The main size tunable, defaults to 4k(4096). Most
   other buffer size variables are multipliers of this number, so allow adjusting all of
   them at once with a single tunable. Fine-tuning, if required, is below.
+* *EXTERNAL_REVERSE_PROXY_IP*: Defaults to be auto-detected. This should be the IP address
+  of the external reverse proxy. In the case of Unraid and swag, this will be the IP
+  of the swag container. Used to ensure that load balancing by IP address doesn't hash
+  on that IP instead of the remote server's IP
 
 ### Connection compression
 <details>
