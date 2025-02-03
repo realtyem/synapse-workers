@@ -12,16 +12,16 @@ log_format mtail '$host $remote_addr - $remote_user [$time_local] $request_lengt
 
 
 # Courtesy of tcpipuk@github.com
-# Extract room name from URI
+# Extract room name from URI, or fallback to username and if not that, $remote_addr
 map $request_uri $room_name {
-    default "not_room";
+    default $user_id;
     "~^/_matrix/(client|federation)/.*?(?:%21|!)(?<room>[\s\S]+)(?::|%3A)(?<domain>[A-Za-z0-9.\-]+)" "!$room:$domain";
 }
 
 # The synchrotron worker can load balance requests based on the user id portion of the
-# access token.
+# access token. If it is not there, balance by the client/server origin IP address.
 map $http_authorization $user_id {
-    default                           $http_authorization;
+    default                           $remote_addr;
     "~Bearer syt_(?<username>.*?)_.*" $username;
 }
 
