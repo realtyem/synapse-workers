@@ -211,6 +211,9 @@ proxy. This is not optimized for Synapse. We can do better.
   them at once with a single tunable. Fine-tuning, if required, is below.
 
 ### Connection compression
+<details>
+<summary>Settings
+</summary>
 The default gzip buffer settings is 32 4k, so we will allow adjusting this by
 piggy-backing on `NGINX_GENERAL_PAGE_SIZE_BYTES` in a following section
 * *NGINX_GZIP_COMP_LEVEL*: The compression level of responses. Default is 1. Higher is
@@ -221,8 +224,12 @@ piggy-backing on `NGINX_GENERAL_PAGE_SIZE_BYTES` in a following section
 * *NGINX_GZIP_MIN_LENGTH*: If a response is smaller than this(in bytes), just send it.
   Normal default is 20, which is really tiny and a waste of time to try and compress.
   New default is 200, but could probably put this at a MTU frame size for efficiency.
+</details>
 
 ### Keep-alives
+<details>
+<summary>Settings
+</summary>
 Nginx has support for HTTP 1.1 persistent connections for both client requests and
 upstreams. Both are now enabled by default.
 #### Client Request Keep-alives
@@ -248,8 +255,12 @@ another to connect to the upstream. So, the formula is:
 * *NGINX_UPSTREAM_KEEPALIVE_CONNECTION_MULTIPLIER*: A keepalive multiplier, this gets multiplied
   by the number of server lines in a given upstream. This value is a maximum number of
   idle connections to keepalive. Default is 1, more did not seem to help during testing.
+</details>
 
 ### Upstream Fail Retries
+<details>
+<summary>Settings
+</summary>
 * *NGINX_UPSTREAM_SERVER_MAX_FAILS*: Defaults to `1`. The number of unsuccessful attempts to
   communicate with the server that should happen in the duration set by
   `NGINX_UPSTREAM_SERVER_FAIL_TIMEOUT` to consider the server unavailable for a duration also
@@ -259,8 +270,12 @@ another to connect to the upstream. So, the formula is:
   * the time during which the specified number of unsuccessful attempts to communicate with the
     server should happen to consider the server unavailable
   * and the period of time the server will be considered unavailable
+</details>
 
 ### Proxy Buffering
+<details>
+<summary>Settings
+</summary>
 * *NGINX_PROXY_BUFFERING*: Defaults to "on", change to "off" to disable buffering of
   responses from Synapse to clients. See also `NGINX_PROXY_BUFFER_SIZE_BYTES` below.
 * *NGINX_PROXY_REQUEST_BUFFERING*: Defaults to "on", change to "off" to disable
@@ -287,6 +302,7 @@ another to connect to the upstream. So, the formula is:
 * *NGINX_PROXY_READ_TIMEOUT*: Defaults to "60s". Sometimes upstream responses can take
   more than a minute between successive writes, use this to accommodate. Don't forget
   the 's' to denote seconds.
+</details>
 
 #### Further Notes about Nginx
 * The `SYNAPSE_MAX_UPLOAD_SIZE` above is also used to limit incoming traffic in Nginx.
