@@ -19,8 +19,8 @@ FROM $FROM
 # the same debian version as Synapse's docker image (so the versions of the
 # shared libraries match).
 RUN adduser --system --uid 999 postgres --home /var/lib/postgresql
-COPY --from=postgres:16-bookworm /usr/lib/postgresql /usr/lib/postgresql
-COPY --from=postgres:16-bookworm /usr/share/postgresql /usr/share/postgresql
+COPY --from=postgres:16-trixie /usr/lib/postgresql /usr/lib/postgresql
+COPY --from=postgres:16-trixie /usr/share/postgresql /usr/share/postgresql
 RUN mkdir /var/run/postgresql && chown postgres /var/run/postgresql
 ENV PATH="${PATH}:/usr/lib/postgresql/16/bin"
 ENV PGDATA=/var/lib/postgresql/data
