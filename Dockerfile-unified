@@ -19,7 +19,6 @@
 #
 
 ARG SYNAPSE_VERSION=latest
-ARG REDIS_VERSION=7.0.8
 
 ###
 ### Stage 2: Add-ons
@@ -41,7 +40,7 @@ ARG REDIS_VERSION=7.0.8
 # target image. For repeated rebuilds, this is much faster than apt installing
 # each time.
 
-FROM debian:bookworm-slim AS deps_base
+FROM debian:trixie-slim AS deps_base
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update -qq && \
@@ -56,11 +55,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # based on the same debian version as the synapse image, to make sure we get
 # the expected version of libc.
 #
-# We will be using the PPA version of keydb until their docker image works for bookworm
-# FROM eqalpha/keydb:latest AS redis_base
+# A redis compatible image is needed. Previously, keydb was used. The debian based image that was used is not being
+# updated any more. Valkey is also redis compatible, and comes highly recommended
+# FROM bitnami/valkey:latest AS redis_base
 
 # Do the same for the Nginx docker image.
-FROM nginx:1.24.0 AS nginx_base
+# The first debian-based image based on trixie is for v1.29
+FROM nginx:1.29 AS nginx_base
 
 # The synapse auto compressor is from an image we build. It won't change much
 # so there's no reason to not have this pre-compiled and just borrow it. This also
@@ -105,13 +106,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # but is currently compiled against ubuntu 18.04 which doesn't work with our libssl.
 # We specifically get the keydb-tools package, as the others tend to setup service
 # entries that are not used(and cause errors).
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    echo "deb https://download.keydb.dev/open-source-dist bookworm main" | tee /etc/apt/sources.list.d/keydb.list && \
-    wget -O /etc/apt/trusted.gpg.d/keydb.gpg https://download.keydb.dev/open-source-dist/keyring.gpg && \
-    apt-get update -qq && apt-get install -yqq \
-        keydb-tools \
-    && rm -rf /var/lib/apt/lists/*
+# RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+#    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+#    echo "deb https://download.keydb.dev/open-source-dist bookworm main" | tee /etc/apt/sources.list.d/keydb.list && \
+#    wget -O /etc/apt/trusted.gpg.d/keydb.gpg https://download.keydb.dev/open-source-dist/keyring.gpg && \
+#    apt-get update -qq && apt-get install -yqq \
+#        keydb-tools \
+#    && rm -rf /var/lib/apt/lists/*
 
 # Prepare directories. Do it in one layer
 RUN mkdir -p /etc/supervisor/conf.d && \
@@ -124,8 +125,8 @@ RUN mkdir -p /etc/supervisor/conf.d && \
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install supervisor~=4.2
 
-# Copy over redis and nginx
-# COPY --from=redis_base /usr/local/bin/keydb-server /usr/local/bin
+# Copy over valkey and nginx
+# COPY --from=redis_base /usr/local/bin/valkey-server /usr/local/bin
 
 COPY --from=nginx_base /usr/sbin/nginx /usr/sbin
 COPY --from=nginx_base /usr/share/nginx /usr/share/nginx
@@ -134,7 +135,7 @@ COPY --from=nginx_base /usr/lib/x86_64-linux-gnu/libssl.so.1.1 /usr/lib/x86_64-l
 COPY --from=nginx_base /etc/nginx /etc/nginx
 RUN rm /etc/nginx/conf.d/default.conf
 
-# Copy over Prometheus. Should we bring the website files. It's 10's of MB's
+# Copy over Prometheus. Should we bring the website files? It's 10's of MB's
 COPY --from=deps_base /usr/bin/prometheus /usr/bin
 COPY --from=deps_base /usr/share/prometheus/* /usr/share/prometheus
 # And Synapse's Prometheus rule file
