@@ -193,9 +193,13 @@ test_packages=(
     ./tests/msc3874
     ./tests/msc3890
     ./tests/msc3391
+    ./tests/msc3757
     ./tests/msc3930
     ./tests/msc3902
     ./tests/msc3967
+    ./tests/msc4140
+    ./tests/msc4155
+    ./tests/msc4306
 )
 # All environment variables starting with PASS_ will be shared.
 # (The prefix is stripped off before reaching the container.)
