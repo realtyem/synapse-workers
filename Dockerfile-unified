@@ -57,7 +57,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 #
 # A redis compatible image is needed. Previously, keydb was used. The debian based image that was used is not being
 # updated any more. Valkey is also redis compatible, and comes highly recommended
-FROM valkey/valkey:trixie AS redis_base
+# FROM valkey/valkey:trixie AS redis_base
 
 # Do the same for the Nginx docker image.
 # The first debian-based image based on trixie is for v1.29
@@ -98,6 +98,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
       nano \
       openssl \
       prometheus-nginx-exporter \
+      valkey-server \
       wget \
       xmlsec1 \
       && rm -rf /var/lib/apt/lists/*
@@ -114,7 +115,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install supervisor~=4.2
 
 # Copy over valkey and nginx
-COPY --from=redis_base /usr/local/bin/valkey-* /usr/local/bin/
+# COPY --from=redis_base /usr/local/bin/valkey-* /usr/local/bin/
 
 COPY --from=nginx_base /usr/sbin/nginx /usr/sbin
 COPY --from=nginx_base /usr/share/nginx /usr/share/nginx
