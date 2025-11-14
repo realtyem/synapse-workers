@@ -19,7 +19,7 @@ username=www-data
 autorestart=true
 
 [program:valkey]
-command=/usr/local/bin/prefix-log /opt/bitnami/valkey/valkey-server --unixsocket /dev/shm/redis.sock --io-threads 2
+command=/usr/local/bin/prefix-log /usr/local/bin/valkey-server --unixsocket /dev/shm/redis.sock --io-threads 2
 priority=1
 stdout_logfile=/dev/stdout
 stdout_logfile_maxbytes=0
