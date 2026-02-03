@@ -211,9 +211,6 @@ http {
         }
     }
 
-    # Use recursive lookup for real IP.
-    real_ip_recursive on;
-
     # The location nginx data will end up in this directory
     include /etc/nginx/conf.d/*.conf;
     include /etc/nginx/sites-enabled/*;
