@@ -75,7 +75,7 @@ FROM realtyem/synapse-tools:latest AS tools
 ### Stage #: runtime
 ###
 
-FROM matrixdotorg/synapse:$SYNAPSE_VERSION
+FROM matrixdotorg/synapse
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
